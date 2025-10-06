@@ -648,7 +648,6 @@
 
         if (typeof adFunction === 'undefined') {
           console.error('Ad function undefined:', adType);
-          alert('Failed to load ad or ad was closed early. Please try again.');
           updateChallengeProgress('tap_frenzy');
           updateChallengeProgress('watch_ads');
           points += pointsPerAd;
@@ -658,17 +657,11 @@
           addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Tap Frenzy`, timestamp: Date.now() });
           document.getElementById('claim-reward-modal').classList.remove('active');
           renderLeaderboard();
-          alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+          alert(`Failed to load ad or ad was closed early. Please try again.`);
           return;
         }
 
-        let adCompleted = false;
         adFunction(() => {
-          if (adCompleted) {
-            console.warn('Ad callback executed multiple times, ignoring:', adType);
-            return;
-          }
-          adCompleted = true;
           console.log('Ad completed successfully, adType:', adType);
           updateChallengeProgress('tap_frenzy');
           updateChallengeProgress('watch_ads');
@@ -684,7 +677,6 @@
         });
       } catch (err) {
         console.error('Error in claimTapFrenzyReward:', err);
-        alert('Failed to load ad or ad was closed early. Please try again.');
         updateChallengeProgress('tap_frenzy');
         updateChallengeProgress('watch_ads');
         points += pointsPerAd;
@@ -694,7 +686,7 @@
         addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Tap Frenzy`, timestamp: Date.now() });
         document.getElementById('claim-reward-modal').classList.remove('active');
         renderLeaderboard();
-        alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+        alert(`Failed to load ad or ad was closed early. Please try again.`);
       }
     }
 
@@ -812,7 +804,6 @@
 
           if (typeof adFunction === 'undefined') {
             console.error('Ad function undefined:', currentAdType);
-            alert('Failed to load ad or ad was closed early. Please try again.');
             updateChallengeProgress('watch_ads');
             points += pointsPerAd;
             document.getElementById('points-value').textContent = points;
@@ -821,45 +812,23 @@
             addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
             renderLeaderboard();
             closeMathChallenge();
-            alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+            alert(`Failed to load ad or ad was closed early. Please try again.`);
             return;
           }
 
-          let adCompleted = false;
-          try {
-            adFunction(() => {
-              if (adCompleted) {
-                console.warn('Ad callback executed multiple times, ignoring:', currentAdType);
-                return;
-              }
-              adCompleted = true;
-              console.log('Ad completed successfully, adType:', currentAdType);
-              updateChallengeProgress('watch_ads');
-              points += pointsPerAd;
-              document.getElementById('points-value').textContent = points;
-              localStorage.setItem('points', points);
-              updateBalance();
-              addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
-              renderLeaderboard();
-              closeMathChallenge();
-              Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-              alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
-            });
-          } catch (adError) {
-            console.error('Error triggering ad:', adError);
-            if (!adCompleted) {
-              alert('Failed to load ad or ad was closed early. Please try again.');
-              updateChallengeProgress('watch_ads');
-              points += pointsPerAd;
-              document.getElementById('points-value').textContent = points;
-              localStorage.setItem('points', points);
-              updateBalance();
-              addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
-              renderLeaderboard();
-              closeMathChallenge();
-              alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
-            }
-          }
+          adFunction(() => {
+            console.log('Ad completed successfully, adType:', currentAdType);
+            updateChallengeProgress('watch_ads');
+            points += pointsPerAd;
+            document.getElementById('points-value').textContent = points;
+            localStorage.setItem('points', points);
+            updateBalance();
+            addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
+            renderLeaderboard();
+            closeMathChallenge();
+            Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+          });
         } else {
           console.warn('Incorrect answer:', parsedAnswer, 'Expected:', currentMathProblem.answer);
           errorElement.textContent = 'Incorrect answer. Please try again.';
@@ -870,8 +839,15 @@
         }
       } catch (err) {
         console.error('Error in submitMathChallenge:', err);
-        alert('Error processing math challenge. Please try again.');
+        updateChallengeProgress('watch_ads');
+        points += 1;
+        document.getElementById('points-value').textContent = points;
+        localStorage.setItem('points', points);
+        updateBalance();
+        addToHistory({ type: 'earn', detail: '+1 Point(s) from Ad', timestamp: Date.now() });
+        renderLeaderboard();
         closeMathChallenge();
+        alert(`Failed to load ad or ad was closed early. Please try again.`);
       }
     }
 
