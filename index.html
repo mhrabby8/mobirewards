@@ -19,7 +19,7 @@
           interstitial: typeof showMonetagRewardedInterstitial,
           popup: typeof showMonetagRewardedPopup
         });
-      }, 3000); // Wait 3 seconds for SDK to load
+      }, 5000); // Wait 5 seconds for SDK to load
     });
   </script>
 
@@ -317,7 +317,21 @@
     let tapCount = 0;
     let tapTimer = null;
     let tapGameActive = false;
-    let points = parseInt(localStorage.getItem('points')) || 0; // Initialize points
+    let points = parseInt(localStorage.getItem('points')) || 0;
+    let balance = parseFloat(localStorage.getItem('balance')) || 0.0;
+
+    function updateBalance() {
+      console.log('updateBalance called, points:', points);
+      try {
+        balance = points / 100; // 100 points = $1.00
+        localStorage.setItem('balance', balance.toFixed(2));
+        document.getElementById('balance-value').textContent = `$${balance.toFixed(2)}`;
+        console.log('Balance updated:', balance);
+      } catch (err) {
+        console.error('Error in updateBalance:', err);
+        alert('Error syncing balance. Please refresh.');
+      }
+    }
 
     function addToHistory(entry) {
       console.log('Adding to history:', entry);
@@ -332,13 +346,14 @@
       }
     }
 
-    // Fallback grantReward if not defined in adserver-config.js
+    // Fallback grantReward
     if (typeof grantReward === 'undefined') {
       window.grantReward = function() {
         console.log('Fallback grantReward called');
         points += 1;
         document.getElementById('points-value').textContent = points;
         localStorage.setItem('points', points);
+        updateBalance();
         addToHistory({ type: 'earn', detail: '+1 Point(s) from Ad', timestamp: Date.now() });
         renderLeaderboard();
       };
@@ -365,7 +380,6 @@
         challengeData = { lastUpdated: today, progress: {} };
       }
 
-      // Reset challenges if new day
       if (challengeData.lastUpdated !== today) {
         console.log('Resetting daily challenges for', today);
         challengeData = { lastUpdated: today, progress: {} };
@@ -374,7 +388,6 @@
         });
       }
 
-      // Ensure all challenges are initialized
       dailyChallenges.forEach(challenge => {
         if (!challengeData.progress[challenge.id]) {
           challengeData.progress[challenge.id] = { count: 0, completed: false };
@@ -397,7 +410,7 @@
         const challengeData = initDailyChallenges();
         const today = new Date().toISOString().split('T')[0];
         if (challengeData.lastUpdated !== today) {
-          initDailyChallenges(); // Reset if date changed
+          initDailyChallenges();
         }
 
         const challenge = dailyChallenges.find(c => c.id === challengeId);
@@ -424,6 +437,7 @@
           points += challenge.reward;
           document.getElementById('points-value').textContent = points;
           localStorage.setItem('points', points);
+          updateBalance();
           addToHistory({ type: 'earn', detail: `+${challenge.reward} Point(s) from ${challenge.name}`, timestamp: Date.now() });
           alert(`Congratulations! You completed "${challenge.name}" and earned ${challenge.reward} points!`);
           Telegram.WebApp.HapticFeedback.notificationOccurred('success');
@@ -512,13 +526,14 @@
         points += 5;
         document.getElementById('points-value').textContent = points;
         localStorage.setItem('points', points);
+        updateBalance();
         addToHistory({ type: 'earn', detail: '+5 Point(s) from Daily Check-in', timestamp: Date.now() });
         localStorage.setItem('checkInData', JSON.stringify(checkInData));
         document.getElementById('check-in-modal').classList.add('active');
         Telegram.WebApp.HapticFeedback.notificationOccurred('success');
         renderCheckIn();
         renderLeaderboard();
-        console.log('Checked in, awarded 5 points, points:', points);
+        console.log('Checked in, awarded 5 points, points:', points, 'balance:', balance);
       } catch (err) {
         console.error('Error in checkIn:', err);
         alert('Error processing check-in. Please try again.');
@@ -574,13 +589,12 @@
 
         tapCount = 0;
         tapGameActive = true;
-        let timeLeft = 30; // 30 seconds
+        let timeLeft = 30;
         tapCountElement.textContent = '0';
         tapTimerElement.textContent = timeLeft;
         modal.classList.add('active');
         Telegram.WebApp.HapticFeedback.notificationOccurred('success');
 
-        // Start timer
         tapTimer = setInterval(() => {
           timeLeft--;
           tapTimerElement.textContent = timeLeft;
@@ -593,7 +607,6 @@
           }
         }, 1000);
 
-        // Randomize coin position on start
         tapTarget.style.animation = 'none';
         setTimeout(() => {
           tapTarget.style.animation = 'moveCoin 3s infinite ease-in-out';
@@ -631,23 +644,38 @@
         const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
         if (typeof adFunction === 'undefined') {
           console.error('Ad function undefined:', adType);
-          alert('Ad service unavailable. Points awarded as fallback.');
+          alert('Ad service unavailable. Points awarded.');
           updateChallengeProgress('tap_frenzy');
-          updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
-          grantReward(); // Fallback reward
+          updateChallengeProgress('watch_ads');
+          grantReward();
           document.getElementById('claim-reward-modal').classList.remove('active');
           return;
         }
+
+        let adCompleted = false;
         adFunction(() => {
+          adCompleted = true;
+          console.log('Ad completed successfully, adType:', adType);
           updateChallengeProgress('tap_frenzy');
-          updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
-          grantReward(); // Award 1 point for ad
+          updateChallengeProgress('watch_ads');
+          grantReward();
           document.getElementById('claim-reward-modal').classList.remove('active');
-          console.log('Tap Frenzy reward claimed, adType:', adType);
         });
+
+        // Check if ad failed after 10 seconds
+        setTimeout(() => {
+          if (!adCompleted) {
+            console.warn('Ad callback not executed, adType:', adType);
+            alert('Ad service unavailable or closed early. Points awarded.');
+            updateChallengeProgress('tap_frenzy');
+            updateChallengeProgress('watch_ads');
+            grantReward();
+            document.getElementById('claim-reward-modal').classList.remove('active');
+          }
+        }, 10000);
       } catch (err) {
         console.error('Error in claimTapFrenzyReward:', err);
-        alert('Error loading ad. Points awarded as fallback.');
+        alert('Error loading ad. Points awarded.');
         updateChallengeProgress('tap_frenzy');
         updateChallengeProgress('watch_ads');
         grantReward();
@@ -669,8 +697,8 @@
 
     function generateMathProblem() {
       console.log('Generating math problem...');
-      const num1 = Math.floor(Math.random() * 10) + 1; // 1 to 10
-      const num2 = Math.floor(Math.random() * 10) + 1; // 1 to 10
+      const num1 = Math.floor(Math.random() * 10) + 1;
+      const num2 = Math.floor(Math.random() * 10) + 1;
       const answer = num1 + num2;
       return { question: `What is ${num1} + ${num2}?`, answer };
     }
@@ -689,12 +717,12 @@
           return;
         }
 
-        currentAdType = adType || 'interstitial'; // Default to interstitial
+        currentAdType = adType || 'interstitial';
         currentMathProblem = generateMathProblem();
         questionElement.textContent = currentMathProblem.question;
         answerInput.value = '';
         errorElement.style.display = 'none';
-        modal.style.display = 'none'; // Reset visibility
+        modal.style.display = 'none';
         modal.classList.add('active');
         console.log('Math challenge modal displayed, question:', currentMathProblem.question, 'adType:', currentAdType);
         answerInput.focus();
@@ -765,26 +793,41 @@
           const adFunction = currentAdType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
           if (typeof adFunction === 'undefined') {
             console.error('Ad function undefined:', currentAdType);
-            alert('Ad service unavailable. Points awarded as fallback.');
+            alert('Ad service unavailable. Points awarded.');
             updateChallengeProgress('watch_ads');
             grantReward();
             closeMathChallenge();
             return;
           }
 
+          let adCompleted = false;
           try {
             adFunction(() => {
+              adCompleted = true;
               console.log('Ad completed successfully, adType:', currentAdType);
               updateChallengeProgress('watch_ads');
               grantReward();
               closeMathChallenge();
             });
+
+            // Check if ad failed after 10 seconds
+            setTimeout(() => {
+              if (!adCompleted) {
+                console.warn('Ad callback not executed, adType:', currentAdType);
+                alert('Ad service unavailable or closed early. Points awarded.');
+                updateChallengeProgress('watch_ads');
+                grantReward();
+                closeMathChallenge();
+              }
+            }, 10000);
           } catch (adError) {
             console.error('Error triggering ad:', adError);
-            alert('Error loading ad. Points awarded as fallback.');
-            updateChallengeProgress('watch_ads');
-            grantReward();
-            closeMathChallenge();
+            if (!adCompleted) {
+              alert('Error loading ad. Points awarded.');
+              updateChallengeProgress('watch_ads');
+              grantReward();
+              closeMathChallenge();
+            }
           }
         } else {
           console.warn('Incorrect answer:', parsedAnswer, 'Expected:', currentMathProblem.answer);
@@ -834,7 +877,9 @@
       try {
         initTelegram();
         points = parseInt(localStorage.getItem('points')) || 0;
+        balance = parseFloat(localStorage.getItem('balance')) || 0.0;
         document.getElementById('points-value').textContent = points;
+        document.getElementById('balance-value').textContent = `$${balance.toFixed(2)}`;
         showView('home-view');
         renderLeaderboard();
         renderDailyChallenges();
