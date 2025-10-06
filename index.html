@@ -15,6 +15,9 @@
     window.addEventListener('load', () => {
       setTimeout(() => {
         console.log('Monetag SDK status:', typeof show_9981456 !== 'undefined' ? 'Loaded' : 'Not loaded');
+        if (typeof showMonetagRewardedInterstitial === 'undefined' || typeof showMonetagRewardedPopup === 'undefined') {
+          console.error('Ad functions missing:', { interstitial: typeof showMonetagRewardedInterstitial, popup: typeof showMonetagRewardedPopup });
+        }
       }, 2000); // Wait 2 seconds for SDK to load
     });
   </script>
@@ -77,10 +80,13 @@
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
     .task-card:hover { transform: translateY(-3px); background-color: var(--secondary-color); }
+    .task-card.completed { background: rgba(46, 217, 20, 0.1); border-color: var(--primary-color); }
+    .task-card.disabled { opacity: 0.5; cursor: not-allowed; }
     .task-icon { font-size: 24px; color: var(--primary-color); margin-right: 20px; width: 30px; text-align: center; }
     .task-details h3 { margin: 0; font-size: 16px; font-weight: 600; }
     .task-details p { margin: 3px 0 0; font-size: 13px; color: var(--text-muted-color); }
     .task-arrow { margin-left: auto; font-size: 18px; color: var(--text-muted-color); }
+    .task-progress { font-size: 13px; color: var(--accent-color); margin-left: 10px; }
     .list-item {
       display: flex; align-items: center; background: var(--card-bg); padding: 12px 15px;
       border-radius: 10px; margin-bottom: 10px; border: 1px solid rgba(255, 255, 255, 0.05);
@@ -151,6 +157,23 @@
     }
     .rank-notification.active { display: block; }
     @keyframes popIn { from { opacity: 0; transform: translate(-50%, -20px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    .tap-frenzy-container {
+      position: relative; width: 100%; height: 200px; background: var(--secondary-color); border-radius: 8px;
+      overflow: hidden; touch-action: manipulation;
+    }
+    .tap-target {
+      position: absolute; width: 40px; height: 40px; background: var(--accent-color); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 20px; cursor: pointer;
+      animation: moveCoin 3s infinite ease-in-out;
+    }
+    @keyframes moveCoin {
+      0% { transform: translate(0, 0); }
+      25% { transform: translate(100px, 50px); }
+      50% { transform: translate(50px, 150px); }
+      75% { transform: translate(150px, 100px); }
+      100% { transform: translate(0, 0); }
+    }
+    .tap-counter, .tap-timer { font-size: 16px; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -171,6 +194,11 @@
             <p class="points-value"><i class="fa-solid fa-coins"></i> <span id="points-value">0</span> Points</p>
         </div>
         <h2 class="section-title">Quick Actions</h2>
+        <div class="task-card" id="check-in-card">
+            <div class="task-icon"><i class="fa-solid fa-calendar-check"></i></div>
+            <div class="task-details"><h3>Daily Check-in</h3><p>Check in daily to earn bonus points!</p></div>
+            <div class="task-arrow"><i class="fa-solid fa-chevron-right"></i></div>
+        </div>
         <div class="task-card" onclick="showView('tasks-view')">
             <div class="task-icon"><i class="fa-solid fa-list-check"></i></div>
             <div class="task-details"><h3>View Tasks</h3><p>Watch ads and complete tasks to earn points.</p></div>
@@ -184,6 +212,8 @@
       </div>
       <!-- TASKS VIEW -->
       <div id="tasks-view" class="view">
+        <h2 class="section-title">Daily Challenges</h2>
+        <div id="daily-challenges"></div>
         <h2 class="section-title">Earning Tasks</h2>
         <div class="task-card" onclick="showMathChallenge('interstitial')">
             <div class="task-icon"><i class="fa-solid fa-rectangle-ad"></i></div>
@@ -240,283 +270,612 @@
         </div>
     </div>
   </div>
+  <!-- CHECK-IN MODAL -->
+  <div class="modal-overlay" id="check-in-modal">
+    <div class="modal-content">
+        <h3>Daily Check-in</h3>
+        <p>Congratulations! You earned 5 points for checking in today!</p>
+        <div class="modal-actions">
+            <button class="action-button primary-button" onclick="closeCheckInModal()">Awesome!</button>
+        </div>
+    </div>
+  </div>
+  <!-- TAP FRENZY MODAL -->
+  <div class="modal-overlay" id="tap-frenzy-modal">
+    <div class="modal-content">
+        <h3>Tap Frenzy</h3>
+        <p>Tap the coin 20 times in 10 seconds!</p>
+        <div class="tap-counter">Taps: <span id="tap-count">0</span>/20</div>
+        <div class="tap-timer">Time: <span id="tap-timer">10</span>s</div>
+        <div class="tap-frenzy-container">
+            <div class="tap-target" id="tap-target" onclick="handleTap()"><i class="fa-solid fa-coins"></i></div>
+        </div>
+        <div class="modal-actions">
+            <button class="action-button secondary-button" onclick="closeTapFrenzy()">Cancel</button>
+        </div>
+    </div>
+  </div>
+  <!-- CLAIM REWARD MODAL -->
+  <div class="modal-overlay" id="claim-reward-modal">
+    <div class="modal-content">
+        <h3>Claim Your Reward</h3>
+        <p>Watch an ad to claim your 5-point reward!</p>
+        <div class="modal-actions">
+            <button class="action-button secondary-button" onclick="closeClaimRewardModal()">Cancel</button>
+            <button class="action-button primary-button" onclick="claimTapFrenzyReward()">Watch Ad</button>
+        </div>
+    </div>
+  </div>
   <!-- RANK NOTIFICATION -->
   <div class="rank-notification" id="rank-notification">Rank Up! You’re now #X!</div>
   <script>
     let currentMathProblem = null;
     let currentAdType = null;
     let lastUserRank = null;
+    let historyLog = JSON.parse(localStorage.getItem('historyLog')) || [];
+    let tapCount = 0;
+    let tapTimer = null;
+    let tapGameActive = false;
+    let points = parseInt(localStorage.getItem('points')) || 0; // Initialize points
+
+    function addToHistory(entry) {
+      console.log('Adding to history:', entry);
+      if (!entry.detail || typeof entry.detail !== 'string') {
+        console.warn('Invalid history entry, setting default detail:', entry);
+        entry.detail = 'Activity recorded';
+      }
+      historyLog.push(entry);
+      localStorage.setItem('historyLog', JSON.stringify(historyLog));
+      if (document.getElementById('history-view').classList.contains('active')) {
+        renderHistory();
+      }
+    }
+
+    // Fallback grantReward if not defined in adserver-config.js
+    if (typeof grantReward === 'undefined') {
+      window.grantReward = function() {
+        console.log('Fallback grantReward called');
+        points += 1;
+        document.getElementById('points-value').textContent = points;
+        localStorage.setItem('points', points);
+        addToHistory({ type: 'earn', detail: '+1 Point(s) from Ad', timestamp: Date.now() });
+        renderLeaderboard();
+      };
+    }
+
+    // Daily challenges configuration
+    const dailyChallenges = [
+      { id: 'watch_ads', name: 'Watch Ads', description: 'Watch 20 ads to earn bonus points.', goal: 20, reward: 10, icon: 'fa-rectangle-ad' },
+      { id: 'solve_math', name: 'Math Whiz', description: 'Solve 20 math challenges.', goal: 20, reward: 15, icon: 'fa-calculator' },
+      { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 10 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' }
+    ];
+
+    function initDailyChallenges() {
+      const today = new Date().toISOString().split('T')[0];
+      let challengeData = JSON.parse(localStorage.getItem('dailyChallenges')) || { lastUpdated: today, progress: {} };
+      
+      // Reset challenges if new day
+      if (challengeData.lastUpdated !== today) {
+        challengeData = { lastUpdated: today, progress: {} };
+        dailyChallenges.forEach(challenge => {
+          challengeData.progress[challenge.id] = { count: 0, completed: false };
+        });
+        localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
+        console.log('Daily challenges reset for', today);
+      }
+      return challengeData;
+    }
+
+    function updateChallengeProgress(challengeId, increment = 1) {
+      const challengeData = initDailyChallenges();
+      const today = new Date().toISOString().split('T')[0];
+      if (challengeData.lastUpdated !== today) {
+        initDailyChallenges(); // Reset if date changed during session
+      }
+      const challenge = dailyChallenges.find(c => c.id === challengeId);
+      if (!challenge || challengeData.progress[challengeId].completed) return;
+
+      challengeData.progress[challengeId].count += increment;
+      if (challengeData.progress[challengeId].count >= challenge.goal) {
+        challengeData.progress[challengeId].completed = true;
+        points += challenge.reward;
+        document.getElementById('points-value').textContent = points;
+        localStorage.setItem('points', points);
+        addToHistory({ type: 'earn', detail: `+${challenge.reward} Point(s) from ${challenge.name}`, timestamp: Date.now() });
+        alert(`Congratulations! You completed "${challenge.name}" and earned ${challenge.reward} points!`);
+        Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        renderLeaderboard(); // Refresh leaderboard with new points
+      }
+      localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
+      renderDailyChallenges();
+      console.log(`Updated challenge ${challengeId}:`, challengeData.progress[challengeId]);
+    }
+
+    function renderDailyChallenges() {
+      const challengeData = initDailyChallenges();
+      const list = document.getElementById('daily-challenges');
+      list.innerHTML = dailyChallenges.map(challenge => {
+        const progress = challengeData.progress[challenge.id] || { count: 0, completed: false };
+        const isCompleted = progress.completed;
+        const onclick = isCompleted ? '' :
+          challenge.id === 'watch_ads' ? `showMathChallenge('interstitial')` :
+          challenge.id === 'solve_math' ? `showMathChallenge('popup')` :
+          `startTapFrenzy()`;
+        return `
+          <div class="task-card ${isCompleted ? 'completed' : ''}" ${isCompleted ? '' : `onclick="${onclick}"`}>
+            <div class="task-icon"><i class="fa-solid ${challenge.icon}"></i></div>
+            <div class="task-details">
+              <h3>${challenge.name}</h3>
+              <p>${challenge.description}</p>
+            </div>
+            <div class="task-progress">${progress.count}/${challenge.goal} ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function initCheckIn() {
+      const today = new Date().toISOString().split('T')[0];
+      let checkInData = JSON.parse(localStorage.getItem('checkInData')) || { lastCheckIn: null, checkedIn: false };
+      
+      // Reset check-in if new day
+      if (checkInData.lastCheckIn !== today) {
+        checkInData = { lastCheckIn: null, checkedIn: false };
+        localStorage.setItem('checkInData', JSON.stringify(checkInData));
+        console.log('Check-in reset for', today);
+      }
+      console.log('initCheckIn:', checkInData);
+      return checkInData;
+    }
+
+    function checkIn() {
+      console.log('checkIn called');
+      try {
+        const checkInData = initCheckIn();
+        const today = new Date().toISOString().split('T')[0];
+        if (checkInData.lastCheckIn === today) {
+          console.log('Already checked in today');
+          alert('You’ve already checked in today!');
+          return;
+        }
+        checkInData.lastCheckIn = today;
+        checkInData.checkedIn = true;
+        points += 5;
+        document.getElementById('points-value').textContent = points;
+        localStorage.setItem('points', points);
+        addToHistory({ type: 'earn', detail: '+5 Point(s) from Daily Check-in', timestamp: Date.now() });
+        localStorage.setItem('checkInData', JSON.stringify(checkInData));
+        document.getElementById('check-in-modal').classList.add('active');
+        Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+        renderCheckIn();
+        renderLeaderboard();
+        console.log('Checked in, awarded 5 points, points:', points);
+      } catch (err) {
+        console.error('Error in checkIn:', err);
+        alert('Error processing check-in. Please try again.');
+      }
+    }
+
+    function renderCheckIn() {
+      console.log('renderCheckIn called');
+      try {
+        const checkInData = initCheckIn();
+        const card = document.getElementById('check-in-card');
+        if (!card) {
+          console.error('Check-in card not found');
+          return;
+        }
+        if (checkInData.checkedIn) {
+          card.classList.add('completed', 'disabled');
+          card.querySelector('.task-details p').textContent = 'You’ve checked in today!';
+          card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-check"></i>';
+          card.onclick = null;
+        } else {
+          card.classList.remove('completed', 'disabled');
+          card.querySelector('.task-details p').textContent = 'Check in daily to earn bonus points!';
+          card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+          card.onclick = checkIn;
+        }
+      } catch (err) {
+        console.error('Error in renderCheckIn:', err);
+        alert('Error rendering check-in. Please refresh.');
+      }
+    }
+
+    function closeCheckInModal() {
+      console.log('Closing check-in modal');
+      document.getElementById('check-in-modal').classList.remove('active');
+    }
+
+    function startTapFrenzy() {
+      console.log('Starting Tap Frenzy');
+      try {
+        const modal = document.getElementById('tap-frenzy-modal');
+        const tapCountElement = document.getElementById('tap-count');
+        const tapTimerElement = document.getElementById('tap-timer');
+        const tapTarget = document.getElementById('tap-target');
+
+        if (!modal || !tapCountElement || !tapTimerElement || !tapTarget) {
+          console.error('Tap Frenzy elements not found');
+          alert('Error: Unable to start game. Please try again.');
+          return;
+        }
+
+        tapCount = 0;
+        tapGameActive = true;
+        let timeLeft = 10;
+        tapCountElement.textContent = '0';
+        tapTimerElement.textContent = timeLeft;
+        modal.classList.add('active');
+        Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+
+        // Start timer
+        tapTimer = setInterval(() => {
+          timeLeft--;
+          tapTimerElement.textContent = timeLeft;
+          if (timeLeft <= 0) {
+            clearInterval(tapTimer);
+            tapGameActive = false;
+            modal.classList.remove('active');
+            alert('Time’s up! Try again to reach 20 taps.');
+            console.log('Tap Frenzy timed out, taps:', tapCount);
+          }
+        }, 1000);
+
+        // Randomize coin position on start
+        tapTarget.style.animation = 'none';
+        setTimeout(() => {
+          tapTarget.style.animation = 'moveCoin 3s infinite ease-in-out';
+        }, 10);
+      } catch (err) {
+        console.error('Error in startTapFrenzy:', err);
+        alert('Error starting Tap Frenzy. Please try again.');
+      }
+    }
+
+    function handleTap() {
+      if (!tapGameActive) return;
+      tapCount++;
+      Telegram.WebApp.HapticFeedback.impactOccurred('light');
+      document.getElementById('tap-count').textContent = tapCount;
+      console.log('Tap recorded, count:', tapCount);
+      if (tapCount >= 20) {
+        completeTapFrenzy();
+      }
+    }
+
+    function completeTapFrenzy() {
+      console.log('Tap Frenzy completed, taps:', tapCount);
+      clearInterval(tapTimer);
+      tapGameActive = false;
+      document.getElementById('tap-frenzy-modal').classList.remove('active');
+      document.getElementById('claim-reward-modal').classList.add('active');
+      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+    }
+
+    function claimTapFrenzyReward() {
+      console.log('Claiming Tap Frenzy reward');
+      try {
+        const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
+        const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
+        if (typeof adFunction === 'undefined') {
+          console.error('Ad function undefined:', adType);
+          alert('Error: Ad service unavailable. Please try again later.');
+          document.getElementById('claim-reward-modal').classList.remove('active');
+          return;
+        }
+        adFunction(() => {
+          updateChallengeProgress('tap_frenzy');
+          updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
+          grantReward(); // Award 1 point for ad
+          document.getElementById('claim-reward-modal').classList.remove('active');
+          console.log('Tap Frenzy reward claimed, adType:', adType);
+        });
+      } catch (err) {
+        console.error('Error in claimTapFrenzyReward:', err);
+        alert('Error loading ad. Please try again.');
+        document.getElementById('claim-reward-modal').classList.remove('active');
+      }
+    }
+
+    function closeTapFrenzy() {
+      console.log('Closing Tap Frenzy modal');
+      clearInterval(tapTimer);
+      tapGameActive = false;
+      document.getElementById('tap-frenzy-modal').classList.remove('active');
+    }
+
+    function closeClaimRewardModal() {
+      console.log('Closing claim reward modal');
+      document.getElementById('claim-reward-modal').classList.remove('active');
+    }
 
     function generateMathProblem() {
-        console.log('Generating math problem...');
-        const num1 = Math.floor(Math.random() * 10) + 1; // 1 to 10
-        const num2 = Math.floor(Math.random() * 10) + 1; // 1 to 10
-        const answer = num1 + num2;
-        return { question: `What is ${num1} + ${num2}?`, answer };
+      console.log('Generating math problem...');
+      const num1 = Math.floor(Math.random() * 10) + 1; // 1 to 10
+      const num2 = Math.floor(Math.random() * 10) + 1; // 1 to 10
+      const answer = num1 + num2;
+      return { question: `What is ${num1} + ${num2}?`, answer };
     }
 
     function showMathChallenge(adType) {
-        console.log('showMathChallenge called with adType:', adType);
-        try {
-            const modal = document.getElementById('math-challenge-modal');
-            const questionElement = document.getElementById('math-question');
-            const answerInput = document.getElementById('math-answer');
-            const errorElement = document.getElementById('math-error');
-
-            if (!modal || !questionElement || !answerInput || !errorElement) {
-                console.error('Math challenge modal elements not found:', { modal, questionElement, answerInput, errorElement });
-                alert('Error: Unable to display math challenge. Please try again.');
-                return;
-            }
-
-            currentAdType = adType;
-            currentMathProblem = generateMathProblem();
-            questionElement.textContent = currentMathProblem.question;
-            answerInput.value = '';
-            errorElement.style.display = 'none';
-            modal.style.display = 'none'; // Ensure initial state
-            modal.classList.add('active');
-            console.log('Math challenge modal should be visible, active class added.');
-            answerInput.focus();
-        } catch (err) {
-            console.error('Error in showMathChallenge:', err);
-            alert('Error displaying math challenge. Please try again.');
+      console.log('showMathChallenge called with adType:', adType);
+      try {
+        const modal = document.getElementById('math-challenge-modal');
+        const questionElement = document.getElementById('math-question');
+        const answerInput = document.getElementById('math-answer');
+        cout << endl;
+        if (!modal || !questionElement || !answerInput || !errorElement) {
+          console.error('Math challenge modal elements not found:', { modal, questionElement, answerInput, errorElement });
+          alert('Error: Unable to display math challenge. Please try again.');
+          return;
         }
+
+        currentAdType = adType;
+        currentMathProblem = generateMathProblem();
+        questionElement.textContent = currentMathProblem.question;
+        answerInput.value = '';
+        errorElement.style.display = 'none';
+        modal.style.display = 'none'; // Ensure initial state
+        modal.classList.add('active');
+        console.log('Math challenge modal should be visible, active class added.');
+        answerInput.focus();
+      } catch (err) {
+        console.error('Error in showMathChallenge:', err);
+        alert('Error displaying math challenge. Please try again.');
+      }
     }
 
     function closeMathChallenge() {
-        console.log('Closing math challenge modal.');
-        const modal = document.getElementById('math-challenge-modal');
-        if (modal) {
-            modal.classList.remove('active');
-        }
-        currentMathProblem = null;
-        currentAdType = null;
+      console.log('Closing math challenge modal.');
+      const modal = document.getElementById('math-challenge-modal');
+      if (modal) {
+        modal.classList.remove('active');
+      }
+      currentMathProblem = null;
+      currentAdType = null;
     }
 
     function submitMathChallenge() {
-        console.log('submitMathChallenge called, user answer:', document.getElementById('math-answer').value);
+      console.log('submitMathChallenge called, user answer:', document.getElementById('math-answer').value);
+      try {
         const answerInput = document.getElementById('math-answer');
         const errorElement = document.getElementById('math-error');
         if (!answerInput || !errorElement) {
-            console.error('Math challenge input or error element not found.');
-            alert('Error: Unable to process answer. Please try again.');
-            return;
+          console.error('Math challenge input or error element not found.');
+          alert('Error: Unable to process answer. Please try again.');
+          return;
         }
         const userAnswer = parseInt(answerInput.value);
         if (isNaN(userAnswer)) {
-            console.warn('Invalid answer input:', answerInput.value);
-            errorElement.style.display = 'block';
-            Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-            return;
+          console.warn('Invalid answer input:', answerInput.value);
+          errorElement.style.display = 'block';
+          Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+          return;
         }
         if (userAnswer === currentMathProblem.answer) {
-            console.log('Correct answer, proceeding to ad:', currentAdType);
-            document.getElementById('math-challenge-modal').classList.remove('active');
-            if (currentAdType === 'interstitial') {
-                showMonetagRewardedInterstitial(grantReward);
-            } else if (currentAdType === 'popup') {
-                showMonetagRewardedPopup(grantReward);
-            }
-            currentMathProblem = null;
-            currentAdType = null;
+          console.log('Correct answer, proceeding to ad:', currentAdType);
+          document.getElementById('math-challenge-modal').classList.remove('active');
+          updateChallengeProgress('solve_math'); // Track math challenge completion
+          const adFunction = currentAdType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
+          if (typeof adFunction === 'undefined') {
+            console.error('Ad function undefined:', currentAdType);
+            alert('Error: Ad service unavailable. Please try again later.');
+            closeMathChallenge();
+            return;
+          }
+          adFunction(() => {
+            console.log('Ad completed, adType:', currentAdType);
+            grantReward(); // Award 1 point for ad
+            updateChallengeProgress('watch_ads');
+            closeMathChallenge();
+          });
         } else {
-            console.warn('Incorrect answer, userAnswer:', userAnswer, 'correctAnswer:', currentMathProblem.answer);
-            errorElement.style.display = 'block';
-            Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+          console.warn('Incorrect answer, userAnswer:', userAnswer, 'correctAnswer:', currentMathProblem.answer);
+          errorElement.style.display = 'block';
+          document.getElementById('math-answer').value = '';
+          Telegram.WebApp.HapticFeedback.notificationOccurred('error');
         }
-    }
-
-    function showRankNotification(newRank) {
-        if (lastUserRank !== null && newRank < lastUserRank && newRank <= 5) {
-            const notification = document.getElementById('rank-notification');
-            notification.textContent = `Rank Up! You’re now #${newRank}!`;
-            notification.classList.add('active');
-            Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-            setTimeout(() => {
-                notification.classList.remove('active');
-            }, 3000);
-        }
-        lastUserRank = newRank;
+      } catch (err) {
+        console.error('Error in submitMathChallenge:', err);
+        alert('Error processing math challenge. Please try again.');
+        closeMathChallenge();
+      }
     }
 
     function shareLeaderboardRank() {
-        if (!tgUser || !tgUser.first_name) {
-            alert('Please log in to share your rank!');
-            return;
-        }
-        const leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || { users: [] };
-        const allUsers = [...leaderboardData.users];
-        const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
-        if (tgUser.first_name) {
-            allUsers.push({
-                name: tgUser.first_name,
-                points: userPoints,
-                avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
-                activityLevel: 'medium'
-            });
-        }
-        allUsers.sort((a, b) => b.points - a.points);
-        const userIndex = allUsers.findIndex(user => user.name === tgUser.first_name);
-        const rank = userIndex + 1;
-        const shareText = `I’m ranked #${rank} with ${userPoints} points on Easy Earning Bot! Join me and start earning: [Your Bot Link]`;
-        Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent('[Your Bot Link]')}&text=${encodeURIComponent(shareText)}`);
-        console.log('Sharing leaderboard rank:', shareText);
+      if (!tgUser || !tgUser.first_name) {
+        alert('Please log in to share your rank!');
+        return;
+      }
+      const leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || { users: [] };
+      const allUsers = [...leaderboardData.users];
+      const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
+      if (tgUser.first_name) {
+        allUsers.push({
+          name: tgUser.first_name,
+          points: userPoints,
+          avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
+          activityLevel: 'medium'
+        });
+      }
+      allUsers.sort((a, b) => b.points - a.points);
+      const userIndex = allUsers.findIndex(user => user.name === tgUser.first_name);
+      const rank = userIndex + 1;
+      const shareText = `I’m ranked #${rank} with ${userPoints} points on Easy Earning Bot! Join me and start earning: [Your Bot Link]`;
+      Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent('[Your Bot Link]')}&text=${encodeURIComponent(shareText)}`);
+      console.log('Sharing leaderboard rank:', shareText);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        initApp();
+      initApp();
     });
 
     function initApp() {
-        console.log('initApp called');
+      console.log('initApp called');
+      try {
         initTelegram();
-        loadData();
+        points = parseInt(localStorage.getItem('points')) || 0;
+        document.getElementById('points-value').textContent = points;
         showView('home-view');
         renderLeaderboard();
+        renderDailyChallenges();
+        renderCheckIn();
+      } catch (err) {
+        console.error('Error in initApp:', err);
+        alert('Error initializing app. Please refresh.');
+      }
     }
 
     function showView(viewId) {
-        console.log('showView called with viewId:', viewId);
-        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-        document.getElementById(viewId).classList.add('active');
-        document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`.nav-button[onclick="showView('${viewId}')"]`);
-        if(activeBtn) activeBtn.classList.add('active');
-        if (viewId === 'history-view') renderHistory();
-        if (viewId === 'leaderboard-view') renderLeaderboard();
+      console.log('showView called with viewId:', viewId);
+      document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+      document.getElementById(viewId).classList.add('active');
+      document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.querySelector(`.nav-button[onclick="showView('${viewId}')"]`);
+      if(activeBtn) activeBtn.classList.add('active');
+      if (viewId === 'history-view') renderHistory();
+      if (viewId === 'leaderboard-view') renderLeaderboard();
+      if (viewId === 'tasks-view') renderDailyChallenges();
+      if (viewId === 'home-view') renderCheckIn();
     }
 
     function renderHistory() {
-        console.log('Rendering history, historyLog length:', historyLog.length);
-        const list = document.getElementById('history-list');
-        if (historyLog.length === 0) {
-            list.innerHTML = `<div class="list-item"><div class="info"><div class="name">No activity yet.</div><div class="detail">Watch some ads to get started!</div></div></div>`;
-            return;
-        }
-        list.innerHTML = historyLog.map(item => {
-            const icon = item.type === 'earn' 
-                ? '<i class="fa-solid fa-plus-circle" style="color: var(--primary-color);"></i>' 
-                : '<i class="fa-solid fa-paper-plane" style="color: var(--accent-color);"></i>';
-            return `
-                <div class="list-item">
-                    <div class="history-icon">${icon}</div>
-                    <div class="info">
-                        <div class="name">${item.detail}</div>
-                        <div class="detail">${new Date(item.timestamp).toLocaleString()}</div>
-                    </div>
-                </div>`;
-        }).join('');
+      console.log('Rendering history, historyLog length:', historyLog.length);
+      const list = document.getElementById('history-list');
+      if (historyLog.length === 0) {
+        list.innerHTML = `<div class="list-item"><div class="info"><div class="name">No activity yet.</div><div class="detail">Watch some ads to get started!</div></div></div>`;
+        return;
+      }
+      list.innerHTML = historyLog.map(item => {
+        const icon = item.type === 'earn' 
+          ? '<i class="fa-solid fa-plus-circle" style="color: var(--primary-color);"></i>' 
+          : '<i class="fa-solid fa-paper-plane" style="color: var(--accent-color);"></i>';
+        return `
+          <div class="list-item">
+            <div class="history-icon">${icon}</div>
+            <div class="info">
+              <div class="name">${item.detail || 'Activity recorded'}</div>
+              <div class="detail">${new Date(item.timestamp).toLocaleString()}</div>
+            </div>
+          </div>`;
+      }).join('');
     }
 
     function renderLeaderboard() {
-        console.log('Rendering leaderboard');
-        try {
-            // Base users with initial points and activity levels
-            const baseUsers = [
-                { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
-                { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
-                { name: "ProMiner", basePoints: 1980, activityLevel: 'high' },
-                { name: "Aisha", basePoints: 1750, activityLevel: 'low' },
-                { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
-            ];
+      console.log('Rendering leaderboard');
+      try {
+        // Base users with initial points and activity levels
+        const baseUsers = [
+          { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
+          { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
+          { name: "ProMiner", basePoints: 1980, activityLevel: 'high' },
+          { name: "Aisha", basePoints: 1750, activityLevel: 'low' },
+          { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
+        ];
 
-            // Load or initialize leaderboard data from localStorage
-            let leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
-                lastUpdated: new Date().toISOString().split('T')[0],
-                users: baseUsers.map(user => ({
-                    ...user,
-                    points: user.basePoints
-                }))
+        // Load or initialize leaderboard data from localStorage
+        let leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
+          lastUpdated: new Date().toISOString().split('T')[0],
+          users: baseUsers.map(user => ({
+            ...user,
+            points: user.basePoints
+          }))
+        };
+
+        // Calculate days since last update
+        const today = new Date().toISOString().split('T')[0];
+        const lastUpdated = new Date(leaderboardData.lastUpdated);
+        const daysDiff = Math.floor((new Date(today) - lastUpdated) / (1000 * 60 * 60 * 24));
+
+        // Update points for top earners based on activity level
+        if (daysDiff > 0) {
+          leaderboardData.users = leaderboardData.users.map(user => {
+            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 : // 10-25
+                              user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 : // 5-15
+                              Math.floor(Math.random() * 6) + 1; // 1-6
+            return {
+              ...user,
+              points: user.points + (dailyIncrease * daysDiff)
             };
-
-            // Calculate days since last update
-            const today = new Date().toISOString().split('T')[0];
-            const lastUpdated = new Date(leaderboardData.lastUpdated);
-            const daysDiff = Math.floor((new Date(today) - lastUpdated) / (1000 * 60 * 60 * 24));
-
-            // Update points for top earners based on activity level
-            if (daysDiff > 0) {
-                leaderboardData.users = leaderboardData.users.map(user => {
-                    const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 : // 10-25
-                                      user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 : // 5-15
-                                      Math.floor(Math.random() * 6) + 1; // 1-6
-                    return {
-                        ...user,
-                        points: user.points + (dailyIncrease * daysDiff)
-                    };
-                });
-                leaderboardData.lastUpdated = today;
-                localStorage.setItem('leaderboardData', JSON.stringify(leaderboardData));
-                console.log('Updated leaderboard points for', daysDiff, 'days:', leaderboardData.users);
-            }
-
-            // Add login user
-            let allUsers = [...leaderboardData.users];
-            let userRank = null;
-            if (tgUser && tgUser.first_name) {
-                const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000; // Use actual points or random 1000-1500
-                const loginUser = {
-                    name: tgUser.first_name,
-                    points: userPoints,
-                    avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
-                    activityLevel: 'medium'
-                };
-                allUsers.push(loginUser);
-                console.log('Added login user to leaderboard:', loginUser.name, 'with points:', userPoints);
-            } else {
-                console.warn('No login user available for leaderboard.');
-            }
-
-            // Sort by points (descending) and render top 5
-            allUsers.sort((a, b) => b.points - a.points);
-            const list = document.getElementById('leaderboard-list');
-            list.innerHTML = allUsers.slice(0, 5).map((user, index) => {
-                const isCurrentUser = tgUser && user.name === tgUser.first_name;
-                if (isCurrentUser) userRank = index + 1;
-                const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
-                              index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
-                              index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
-                // Calculate progress to next rank
-                const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
-                const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
-                                Math.min((user.points / nextPoints) * 100, 99); // Cap at 99% for non-#1
-                return `
-                    <div class="list-item ${isCurrentUser ? 'current-user' : ''} rank-${index + 1}">
-                        <div class="rank">#${index + 1}</div>
-                        ${badge}
-                        <img src="${user.avatar}" class="avatar" alt="Avatar" onerror="this.src='https://i.pravatar.cc/150?img=1'">
-                        <div class="info">
-                            <div class="name">${user.name}</div>
-                            <div class="progress-bar-container">
-                                <div class="progress-bar" style="width: ${progress}%"></div>
-                            </div>
-                        </div>
-                        <div class="score">${user.points} pts</div>
-                    </div>
-                `;
-            }).join('');
-
-            // Show rank notification if user improved rank
-            if (userRank) showRankNotification(userRank);
-        } catch (err) {
-            console.error('Error rendering leaderboard:', err);
-            document.getElementById('leaderboard-list').innerHTML = `<div class="list-item"><div class="info"><div class="name">Error loading leaderboard.</div><div class="detail">Please try again later.</div></div></div>`;
+          });
+          leaderboardData.lastUpdated = today;
+          localStorage.setItem('leaderboardData', JSON.stringify(leaderboardData));
+          console.log('Updated leaderboard points for', daysDiff, 'days:', leaderboardData.users);
         }
+
+        // Add login user
+        let allUsers = [...leaderboardData.users];
+        let userRank = null;
+        if (tgUser && tgUser.first_name) {
+          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000; // Use actual points or random 1000-1500
+          const loginUser = {
+            name: tgUser.first_name,
+            points: userPoints,
+            avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
+            activityLevel: 'medium'
+          };
+          allUsers.push(loginUser);
+          console.log('Added login user to leaderboard:', loginUser.name, 'with points:', userPoints);
+        } else {
+          console.warn('No login user available for leaderboard.');
+        }
+
+        // Sort by points (descending) and render top 5
+        allUsers.sort((a, b) => b.points - a.points);
+        const list = document.getElementById('leaderboard-list');
+        list.innerHTML = allUsers.slice(0, 5).map((user, index) => {
+          const isCurrentUser = tgUser && user.name === tgUser.first_name;
+          if (isCurrentUser) userRank = index + 1;
+          const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
+                        index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
+                        index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
+          // Calculate progress to next rank
+          const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].ポイント;
+          const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
+                          Math.min((user.points / nextPoints) * 100, 99); // Cap at 99% for non-#1
+          return `
+            <div class="list-item ${isCurrentUser ? 'current-user' : ''} rank-${index + 1}">
+              <div class="rank">#${index + 1}</div>
+              ${badge}
+              <img src="${user.avatar}" class="avatar" alt="Avatar" onerror="this.src='https://i.pravatar.cc/150?img=1'">
+              <div class="info">
+                <div class="name">${user.name}</div>
+                <div class="progress-bar-container">
+                  <div class="progress-bar" style="width: ${progress}%"></div>
+                </div>
+              </div>
+              <div class="score">${user.points} pts</div>
+            </div>
+          `;
+        }).join('');
+
+        // Show rank notification if user improved rank
+        if (userRank && lastUserRank && userRank < lastUserRank) {
+          const notification = document.getElementById('rank-notification');
+          notification.textContent = `Rank Up! You’re now #${userRank}!`;
+          notification.classList.add('active');
+          setTimeout(() => notification.classList.remove('active'), 3000);
+        }
+        lastUserRank = userRank;
+      } catch (err) {
+        console.error('Error rendering leaderboard:', err);
+        document.getElementById('leaderboard-list').innerHTML = `<div class="list-item"><div class="info"><div class="name">Error loading leaderboard.</div><div class="detail">Please try again later.</div></div></div>`;
+      }
     }
 
     function openWithdrawModal() {
-        console.log('openWithdrawModal called, balance:', balance);
-        if (balance < 5) {
-            Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-            return alert("Minimum withdrawal amount is $5.00. Keep earning!");
-        }
-        document.getElementById('withdraw-modal').classList.add('active');
+      console.log('openWithdrawModal called, balance:', balance);
+      if (balance < 5) {
+        Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+        return alert("Minimum withdrawal amount is $5.00. Keep earning!");
+      }
+      document.getElementById('withdraw-modal').classList.add('active');
     }
 
     function closeWithdrawModal() {
-        console.log('Closing withdraw modal');
-        document.getElementById('withdraw-modal').classList.remove('active');
+      console.log('Closing withdraw modal');
+      document.getElementById('withdraw-modal').classList.remove('active');
     }
   </script>
 </body>
