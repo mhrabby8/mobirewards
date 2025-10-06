@@ -15,9 +15,10 @@
     window.addEventListener('load', () => {
       setTimeout(() => {
         console.log('Monetag SDK status:', typeof show_9981456 !== 'undefined' ? 'Loaded' : 'Not loaded');
-        if (typeof showMonetagRewardedInterstitial === 'undefined' || typeof showMonetagRewardedPopup === 'undefined') {
-          console.error('Ad functions missing:', { interstitial: typeof showMonetagRewardedInterstitial, popup: typeof showMonetagRewardedPopup });
-        }
+        console.log('Ad functions:', {
+          interstitial: typeof showMonetagRewardedInterstitial,
+          popup: typeof showMonetagRewardedPopup
+        });
       }, 2000); // Wait 2 seconds for SDK to load
     });
   </script>
@@ -284,9 +285,9 @@
   <div class="modal-overlay" id="tap-frenzy-modal">
     <div class="modal-content">
         <h3>Tap Frenzy</h3>
-        <p>Tap the coin 20 times in 10 seconds!</p>
+        <p>Tap the coin 20 times in 30 seconds!</p>
         <div class="tap-counter">Taps: <span id="tap-count">0</span>/20</div>
-        <div class="tap-timer">Time: <span id="tap-timer">10</span>s</div>
+        <div class="tap-timer">Time: <span id="tap-timer">30</span>s</div>
         <div class="tap-frenzy-container">
             <div class="tap-target" id="tap-target" onclick="handleTap()"><i class="fa-solid fa-coins"></i></div>
         </div>
@@ -347,7 +348,7 @@
     const dailyChallenges = [
       { id: 'watch_ads', name: 'Watch Ads', description: 'Watch 20 ads to earn bonus points.', goal: 20, reward: 10, icon: 'fa-rectangle-ad' },
       { id: 'solve_math', name: 'Math Whiz', description: 'Solve 20 math challenges.', goal: 20, reward: 15, icon: 'fa-calculator' },
-      { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 10 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' }
+      { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 30 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' }
     ];
 
     function initDailyChallenges() {
@@ -496,14 +497,14 @@
         const tapTarget = document.getElementById('tap-target');
 
         if (!modal || !tapCountElement || !tapTimerElement || !tapTarget) {
-          console.error('Tap Frenzy elements not found');
+          console.error('Tap Frenzy elements not found:', { modal, tapCountElement, tapTimerElement, tapTarget });
           alert('Error: Unable to start game. Please try again.');
           return;
         }
 
         tapCount = 0;
         tapGameActive = true;
-        let timeLeft = 10;
+        let timeLeft = 30; // Changed to 30 seconds
         tapCountElement.textContent = '0';
         tapTimerElement.textContent = timeLeft;
         modal.classList.add('active');
@@ -604,7 +605,8 @@
         const modal = document.getElementById('math-challenge-modal');
         const questionElement = document.getElementById('math-question');
         const answerInput = document.getElementById('math-answer');
-        cout << endl;
+        const errorElement = document.getElementById('math-error');
+
         if (!modal || !questionElement || !answerInput || !errorElement) {
           console.error('Math challenge modal elements not found:', { modal, questionElement, answerInput, errorElement });
           alert('Error: Unable to display math challenge. Please try again.');
@@ -618,7 +620,7 @@
         errorElement.style.display = 'none';
         modal.style.display = 'none'; // Ensure initial state
         modal.classList.add('active');
-        console.log('Math challenge modal should be visible, active class added.');
+        console.log('Math challenge modal displayed, question:', currentMathProblem.question);
         answerInput.focus();
       } catch (err) {
         console.error('Error in showMathChallenge:', err);
@@ -642,7 +644,7 @@
         const answerInput = document.getElementById('math-answer');
         const errorElement = document.getElementById('math-error');
         if (!answerInput || !errorElement) {
-          console.error('Math challenge input or error element not found.');
+          console.error('Math challenge input or error element not found:', { answerInput, errorElement });
           alert('Error: Unable to process answer. Please try again.');
           return;
         }
@@ -651,6 +653,8 @@
           console.warn('Invalid answer input:', answerInput.value);
           errorElement.style.display = 'block';
           Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+          answerInput.value = '';
+          answerInput.focus();
           return;
         }
         if (userAnswer === currentMathProblem.answer) {
@@ -673,7 +677,8 @@
         } else {
           console.warn('Incorrect answer, userAnswer:', userAnswer, 'correctAnswer:', currentMathProblem.answer);
           errorElement.style.display = 'block';
-          document.getElementById('math-answer').value = '';
+          answerInput.value = '';
+          answerInput.focus();
           Telegram.WebApp.HapticFeedback.notificationOccurred('error');
         }
       } catch (err) {
@@ -831,7 +836,7 @@
                         index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
                         index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
           // Calculate progress to next rank
-          const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].ポイント;
+          const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
           const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
                           Math.min((user.points / nextPoints) * 100, 99); // Cap at 99% for non-#1
           return `
