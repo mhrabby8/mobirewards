@@ -19,7 +19,7 @@
           interstitial: typeof showMonetagRewardedInterstitial,
           popup: typeof showMonetagRewardedPopup
         });
-      }, 2000); // Wait 2 seconds for SDK to load
+      }, 3000); // Wait 3 seconds for SDK to load
     });
   </script>
 
@@ -392,29 +392,6 @@
       console.log(`Updated challenge ${challengeId}:`, challengeData.progress[challengeId]);
     }
 
-    function renderDailyChallenges() {
-      const challengeData = initDailyChallenges();
-      const list = document.getElementById('daily-challenges');
-      list.innerHTML = dailyChallenges.map(challenge => {
-        const progress = challengeData.progress[challenge.id] || { count: 0, completed: false };
-        const isCompleted = progress.completed;
-        const onclick = isCompleted ? '' :
-          challenge.id === 'watch_ads' ? `showMathChallenge('interstitial')` :
-          challenge.id === 'solve_math' ? `showMathChallenge('popup')` :
-          `startTapFrenzy()`;
-        return `
-          <div class="task-card ${isCompleted ? 'completed' : ''}" ${isCompleted ? '' : `onclick="${onclick}"`}>
-            <div class="task-icon"><i class="fa-solid ${challenge.icon}"></i></div>
-            <div class="task-details">
-              <h3>${challenge.name}</h3>
-              <p>${challenge.description}</p>
-            </div>
-            <div class="task-progress">${progress.count}/${challenge.goal} ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}</div>
-          </div>
-        `;
-      }).join('');
-    }
-
     function initCheckIn() {
       const today = new Date().toISOString().split('T')[0];
       let checkInData = JSON.parse(localStorage.getItem('checkInData')) || { lastCheckIn: null, checkedIn: false };
@@ -504,7 +481,7 @@
 
         tapCount = 0;
         tapGameActive = true;
-        let timeLeft = 30; // Changed to 30 seconds
+        let timeLeft = 30; // 30 seconds
         tapCountElement.textContent = '0';
         tapTimerElement.textContent = timeLeft;
         modal.classList.add('active');
@@ -561,7 +538,10 @@
         const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
         if (typeof adFunction === 'undefined') {
           console.error('Ad function undefined:', adType);
-          alert('Error: Ad service unavailable. Please try again later.');
+          alert('Ad service unavailable. Points awarded as fallback.');
+          updateChallengeProgress('tap_frenzy');
+          updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
+          grantReward(); // Fallback reward
           document.getElementById('claim-reward-modal').classList.remove('active');
           return;
         }
@@ -574,7 +554,10 @@
         });
       } catch (err) {
         console.error('Error in claimTapFrenzyReward:', err);
-        alert('Error loading ad. Please try again.');
+        alert('Error loading ad. Points awarded as fallback.');
+        updateChallengeProgress('tap_frenzy');
+        updateChallengeProgress('watch_ads');
+        grantReward();
         document.getElementById('claim-reward-modal').classList.remove('active');
       }
     }
@@ -613,14 +596,14 @@
           return;
         }
 
-        currentAdType = adType;
+        currentAdType = adType || 'interstitial'; // Default to interstitial if undefined
         currentMathProblem = generateMathProblem();
         questionElement.textContent = currentMathProblem.question;
         answerInput.value = '';
         errorElement.style.display = 'none';
         modal.style.display = 'none'; // Ensure initial state
         modal.classList.add('active');
-        console.log('Math challenge modal displayed, question:', currentMathProblem.question);
+        console.log('Math challenge modal displayed, question:', currentMathProblem.question, 'adType:', currentAdType);
         answerInput.focus();
       } catch (err) {
         console.error('Error in showMathChallenge:', err);
@@ -629,7 +612,7 @@
     }
 
     function closeMathChallenge() {
-      console.log('Closing math challenge modal.');
+      console.log('Closing math challenge modal');
       const modal = document.getElementById('math-challenge-modal');
       if (modal) {
         modal.classList.remove('active');
@@ -639,43 +622,81 @@
     }
 
     function submitMathChallenge() {
-      console.log('submitMathChallenge called, user answer:', document.getElementById('math-answer').value);
+      console.log('submitMathChallenge called');
       try {
+        const modal = document.getElementById('math-challenge-modal');
         const answerInput = document.getElementById('math-answer');
         const errorElement = document.getElementById('math-error');
-        if (!answerInput || !errorElement) {
-          console.error('Math challenge input or error element not found:', { answerInput, errorElement });
+        
+        if (!modal || !answerInput || !errorElement) {
+          console.error('Math challenge elements not found:', { modal, answerInput, errorElement });
           alert('Error: Unable to process answer. Please try again.');
           return;
         }
-        const userAnswer = parseInt(answerInput.value);
-        if (isNaN(userAnswer)) {
-          console.warn('Invalid answer input:', answerInput.value);
-          errorElement.style.display = 'block';
-          Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-          answerInput.value = '';
-          answerInput.focus();
+
+        if (!modal.classList.contains('active')) {
+          console.error('Math challenge modal not active');
+          alert('Error: Math challenge modal is not open. Please try again.');
           return;
         }
-        if (userAnswer === currentMathProblem.answer) {
-          console.log('Correct answer, proceeding to ad:', currentAdType);
-          document.getElementById('math-challenge-modal').classList.remove('active');
-          updateChallengeProgress('solve_math'); // Track math challenge completion
+
+        if (!currentMathProblem || !currentAdType) {
+          console.error('Invalid state:', { currentMathProblem, currentAdType });
+          alert('Error: Math challenge not properly initialized. Please try again.');
+          closeMathChallenge();
+          return;
+        }
+
+        const userAnswer = answerInput.value.trim();
+        console.log('User answer:', userAnswer, 'Expected answer:', currentMathProblem.answer, 'Ad type:', currentAdType);
+
+        if (userAnswer === '' || isNaN(userAnswer)) {
+          console.warn('Invalid input:', userAnswer);
+          errorElement.textContent = 'Please enter a valid number.';
+          errorElement.style.display = 'block';
+          answerInput.value = '';
+          answerInput.focus();
+          Telegram.WebApp.HapticFeedback.notificationOccurred('error');
+          return;
+        }
+
+        const parsedAnswer = parseInt(userAnswer, 10);
+        if (parsedAnswer === currentMathProblem.answer) {
+          console.log('Correct answer, closing modal and triggering ad:', currentAdType);
+          modal.classList.remove('active');
+          
+          // Update progress before ad to ensure tracking
+          if (currentAdType === 'popup') {
+            updateChallengeProgress('solve_math');
+          }
+          
           const adFunction = currentAdType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
           if (typeof adFunction === 'undefined') {
             console.error('Ad function undefined:', currentAdType);
-            alert('Error: Ad service unavailable. Please try again later.');
+            alert('Ad service unavailable. Points awarded as fallback.');
+            updateChallengeProgress('watch_ads');
+            grantReward(); // Fallback reward
             closeMathChallenge();
             return;
           }
-          adFunction(() => {
-            console.log('Ad completed, adType:', currentAdType);
-            grantReward(); // Award 1 point for ad
+
+          try {
+            adFunction(() => {
+              console.log('Ad completed successfully, adType:', currentAdType);
+              updateChallengeProgress('watch_ads');
+              grantReward(); // Award 1 point for ad
+              closeMathChallenge();
+            });
+          } catch (adError) {
+            console.error('Error triggering ad:', adError);
+            alert('Error loading ad. Points awarded as fallback.');
             updateChallengeProgress('watch_ads');
+            grantReward();
             closeMathChallenge();
-          });
+          }
         } else {
-          console.warn('Incorrect answer, userAnswer:', userAnswer, 'correctAnswer:', currentMathProblem.answer);
+          console.warn('Incorrect answer:', parsedAnswer, 'Expected:', currentMathProblem.answer);
+          errorElement.textContent = 'Incorrect answer. Please try again.';
           errorElement.style.display = 'block';
           answerInput.value = '';
           answerInput.focus();
