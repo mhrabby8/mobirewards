@@ -352,57 +352,147 @@
     ];
 
     function initDailyChallenges() {
+      console.log('initDailyChallenges called');
       const today = new Date().toISOString().split('T')[0];
-      let challengeData = JSON.parse(localStorage.getItem('dailyChallenges')) || { lastUpdated: today, progress: {} };
-      
+      let challengeData = null;
+      try {
+        challengeData = JSON.parse(localStorage.getItem('dailyChallenges')) || { lastUpdated: today, progress: {} };
+        if (!challengeData.lastUpdated || !challengeData.progress) {
+          throw new Error('Invalid challengeData structure');
+        }
+      } catch (err) {
+        console.warn('Invalid dailyChallenges in localStorage, resetting:', err);
+        challengeData = { lastUpdated: today, progress: {} };
+      }
+
       // Reset challenges if new day
       if (challengeData.lastUpdated !== today) {
+        console.log('Resetting daily challenges for', today);
         challengeData = { lastUpdated: today, progress: {} };
         dailyChallenges.forEach(challenge => {
           challengeData.progress[challenge.id] = { count: 0, completed: false };
         });
+      }
+
+      // Ensure all challenges are initialized
+      dailyChallenges.forEach(challenge => {
+        if (!challengeData.progress[challenge.id]) {
+          challengeData.progress[challenge.id] = { count: 0, completed: false };
+        }
+      });
+
+      try {
         localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
-        console.log('Daily challenges reset for', today);
+        console.log('Daily challenges initialized:', challengeData);
+      } catch (err) {
+        console.error('Error saving dailyChallenges to localStorage:', err);
+        alert('Error initializing challenges. Please refresh.');
       }
       return challengeData;
     }
 
     function updateChallengeProgress(challengeId, increment = 1) {
-      const challengeData = initDailyChallenges();
-      const today = new Date().toISOString().split('T')[0];
-      if (challengeData.lastUpdated !== today) {
-        initDailyChallenges(); // Reset if date changed during session
-      }
-      const challenge = dailyChallenges.find(c => c.id === challengeId);
-      if (!challenge || challengeData.progress[challengeId].completed) return;
+      console.log(`updateChallengeProgress called for ${challengeId}, increment: ${increment}`);
+      try {
+        const challengeData = initDailyChallenges();
+        const today = new Date().toISOString().split('T')[0];
+        if (challengeData.lastUpdated !== today) {
+          initDailyChallenges(); // Reset if date changed
+        }
 
-      challengeData.progress[challengeId].count += increment;
-      if (challengeData.progress[challengeId].count >= challenge.goal) {
-        challengeData.progress[challengeId].completed = true;
-        points += challenge.reward;
-        document.getElementById('points-value').textContent = points;
-        localStorage.setItem('points', points);
-        addToHistory({ type: 'earn', detail: `+${challenge.reward} Point(s) from ${challenge.name}`, timestamp: Date.now() });
-        alert(`Congratulations! You completed "${challenge.name}" and earned ${challenge.reward} points!`);
-        Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-        renderLeaderboard(); // Refresh leaderboard with new points
+        const challenge = dailyChallenges.find(c => c.id === challengeId);
+        if (!challenge) {
+          console.error('Challenge not found:', challengeId);
+          return;
+        }
+
+        if (!challengeData.progress[challengeId]) {
+          console.warn(`Progress for ${challengeId} not initialized, setting default`);
+          challengeData.progress[challengeId] = { count: 0, completed: false };
+        }
+
+        if (challengeData.progress[challengeId].completed) {
+          console.log(`Challenge ${challengeId} already completed`);
+          return;
+        }
+
+        challengeData.progress[challengeId].count += increment;
+        console.log(`Updated ${challengeId} count: ${challengeData.progress[challengeId].count}/${challenge.goal}`);
+
+        if (challengeData.progress[challengeId].count >= challenge.goal) {
+          challengeData.progress[challengeId].completed = true;
+          points += challenge.reward;
+          document.getElementById('points-value').textContent = points;
+          localStorage.setItem('points', points);
+          addToHistory({ type: 'earn', detail: `+${challenge.reward} Point(s) from ${challenge.name}`, timestamp: Date.now() });
+          alert(`Congratulations! You completed "${challenge.name}" and earned ${challenge.reward} points!`);
+          Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+          renderLeaderboard();
+        }
+
+        localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
+        renderDailyChallenges();
+      } catch (err) {
+        console.error('Error in updateChallengeProgress:', err);
+        alert(`Error updating ${challengeId} progress. Please try again.`);
       }
-      localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
-      renderDailyChallenges();
-      console.log(`Updated challenge ${challengeId}:`, challengeData.progress[challengeId]);
+    }
+
+    function renderDailyChallenges() {
+      console.log('renderDailyChallenges called');
+      try {
+        const challengeData = initDailyChallenges();
+        const list = document.getElementById('daily-challenges');
+        if (!list) {
+          console.error('Daily challenges container not found');
+          return;
+        }
+
+        list.innerHTML = dailyChallenges.map(challenge => {
+          const progress = challengeData.progress[challenge.id] || { count: 0, completed: false };
+          const isCompleted = progress.completed;
+          const onclick = isCompleted ? '' :
+            challenge.id === 'watch_ads' ? `showMathChallenge('interstitial')` :
+            challenge.id === 'solve_math' ? `showMathChallenge('popup')` :
+            `startTapFrenzy()`;
+          return `
+            <div class="task-card ${isCompleted ? 'completed disabled' : ''}" ${isCompleted ? '' : `onclick="${onclick}"`}>
+              <div class="task-icon"><i class="fa-solid ${challenge.icon}"></i></div>
+              <div class="task-details">
+                <h3>${challenge.name}</h3>
+                <p>${challenge.description}</p>
+              </div>
+              <div class="task-progress">${progress.count}/${challenge.goal} ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}</div>
+            </div>
+          `;
+        }).join('');
+        console.log('Daily challenges rendered:', challengeData.progress);
+      } catch (err) {
+        console.error('Error in renderDailyChallenges:', err);
+        alert('Error rendering challenges. Please refresh.');
+      }
     }
 
     function initCheckIn() {
+      console.log('initCheckIn called');
       const today = new Date().toISOString().split('T')[0];
-      let checkInData = JSON.parse(localStorage.getItem('checkInData')) || { lastCheckIn: null, checkedIn: false };
-      
-      // Reset check-in if new day
+      let checkInData = null;
+      try {
+        checkInData = JSON.parse(localStorage.getItem('checkInData')) || { lastCheckIn: null, checkedIn: false };
+        if (!checkInData.lastCheckIn || typeof checkInData.checkedIn !== 'boolean') {
+          throw new Error('Invalid checkInData structure');
+        }
+      } catch (err) {
+        console.warn('Invalid checkInData in localStorage, resetting:', err);
+        checkInData = { lastCheckIn: null, checkedIn: false };
+      }
+
       if (checkInData.lastCheckIn !== today) {
+        console.log('Resetting check-in for', today);
         checkInData = { lastCheckIn: null, checkedIn: false };
         localStorage.setItem('checkInData', JSON.stringify(checkInData));
-        console.log('Check-in reset for', today);
       }
-      console.log('initCheckIn:', checkInData);
+      console.log('Check-in initialized:', checkInData);
       return checkInData;
     }
 
@@ -411,11 +501,12 @@
       try {
         const checkInData = initCheckIn();
         const today = new Date().toISOString().split('T')[0];
-        if (checkInData.lastCheckIn === today) {
+        if (checkInData.lastCheckIn === today && checkInData.checkedIn) {
           console.log('Already checked in today');
           alert('You’ve already checked in today!');
           return;
         }
+
         checkInData.lastCheckIn = today;
         checkInData.checkedIn = true;
         points += 5;
@@ -443,7 +534,8 @@
           console.error('Check-in card not found');
           return;
         }
-        if (checkInData.checkedIn) {
+
+        if (checkInData.checkedIn && checkInData.lastCheckIn === new Date().toISOString().split('T')[0]) {
           card.classList.add('completed', 'disabled');
           card.querySelector('.task-details p').textContent = 'You’ve checked in today!';
           card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-check"></i>';
@@ -454,6 +546,7 @@
           card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
           card.onclick = checkIn;
         }
+        console.log('Check-in rendered:', checkInData);
       } catch (err) {
         console.error('Error in renderCheckIn:', err);
         alert('Error rendering check-in. Please refresh.');
@@ -596,12 +689,12 @@
           return;
         }
 
-        currentAdType = adType || 'interstitial'; // Default to interstitial if undefined
+        currentAdType = adType || 'interstitial'; // Default to interstitial
         currentMathProblem = generateMathProblem();
         questionElement.textContent = currentMathProblem.question;
         answerInput.value = '';
         errorElement.style.display = 'none';
-        modal.style.display = 'none'; // Ensure initial state
+        modal.style.display = 'none'; // Reset visibility
         modal.classList.add('active');
         console.log('Math challenge modal displayed, question:', currentMathProblem.question, 'adType:', currentAdType);
         answerInput.focus();
@@ -665,7 +758,6 @@
           console.log('Correct answer, closing modal and triggering ad:', currentAdType);
           modal.classList.remove('active');
           
-          // Update progress before ad to ensure tracking
           if (currentAdType === 'popup') {
             updateChallengeProgress('solve_math');
           }
@@ -675,7 +767,7 @@
             console.error('Ad function undefined:', currentAdType);
             alert('Ad service unavailable. Points awarded as fallback.');
             updateChallengeProgress('watch_ads');
-            grantReward(); // Fallback reward
+            grantReward();
             closeMathChallenge();
             return;
           }
@@ -684,7 +776,7 @@
             adFunction(() => {
               console.log('Ad completed successfully, adType:', currentAdType);
               updateChallengeProgress('watch_ads');
-              grantReward(); // Award 1 point for ad
+              grantReward();
               closeMathChallenge();
             });
           } catch (adError) {
@@ -791,7 +883,6 @@
     function renderLeaderboard() {
       console.log('Rendering leaderboard');
       try {
-        // Base users with initial points and activity levels
         const baseUsers = [
           { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
           { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
@@ -800,26 +891,29 @@
           { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
         ];
 
-        // Load or initialize leaderboard data from localStorage
-        let leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
-          lastUpdated: new Date().toISOString().split('T')[0],
-          users: baseUsers.map(user => ({
-            ...user,
-            points: user.basePoints
-          }))
-        };
+        let leaderboardData = null;
+        try {
+          leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
+            lastUpdated: new Date().toISOString().split('T')[0],
+            users: baseUsers.map(user => ({ ...user, points: user.basePoints }))
+          };
+        } catch (err) {
+          console.warn('Invalid leaderboardData in localStorage, resetting:', err);
+          leaderboardData = {
+            lastUpdated: new Date().toISOString().split('T')[0],
+            users: baseUsers.map(user => ({ ...user, points: user.basePoints }))
+          };
+        }
 
-        // Calculate days since last update
         const today = new Date().toISOString().split('T')[0];
         const lastUpdated = new Date(leaderboardData.lastUpdated);
         const daysDiff = Math.floor((new Date(today) - lastUpdated) / (1000 * 60 * 60 * 24));
 
-        // Update points for top earners based on activity level
         if (daysDiff > 0) {
           leaderboardData.users = leaderboardData.users.map(user => {
-            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 : // 10-25
-                              user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 : // 5-15
-                              Math.floor(Math.random() * 6) + 1; // 1-6
+            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 :
+                                 user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 :
+                                 Math.floor(Math.random() * 6) + 1;
             return {
               ...user,
               points: user.points + (dailyIncrease * daysDiff)
@@ -830,11 +924,10 @@
           console.log('Updated leaderboard points for', daysDiff, 'days:', leaderboardData.users);
         }
 
-        // Add login user
         let allUsers = [...leaderboardData.users];
         let userRank = null;
         if (tgUser && tgUser.first_name) {
-          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000; // Use actual points or random 1000-1500
+          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
           const loginUser = {
             name: tgUser.first_name,
             points: userPoints,
@@ -847,7 +940,6 @@
           console.warn('No login user available for leaderboard.');
         }
 
-        // Sort by points (descending) and render top 5
         allUsers.sort((a, b) => b.points - a.points);
         const list = document.getElementById('leaderboard-list');
         list.innerHTML = allUsers.slice(0, 5).map((user, index) => {
@@ -856,10 +948,9 @@
           const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
                         index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
                         index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
-          // Calculate progress to next rank
           const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
           const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
-                          Math.min((user.points / nextPoints) * 100, 99); // Cap at 99% for non-#1
+                          Math.min((user.points / nextPoints) * 100, 99);
           return `
             <div class="list-item ${isCurrentUser ? 'current-user' : ''} rank-${index + 1}">
               <div class="rank">#${index + 1}</div>
@@ -876,7 +967,6 @@
           `;
         }).join('');
 
-        // Show rank notification if user improved rank
         if (userRank && lastUserRank && userRank < lastUserRank) {
           const notification = document.getElementById('rank-notification');
           notification.textContent = `Rank Up! You’re now #${userRank}!`;
