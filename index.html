@@ -19,7 +19,7 @@
           interstitial: typeof showMonetagRewardedInterstitial,
           popup: typeof showMonetagRewardedPopup
         });
-      }, 5000); // Wait 5 seconds for SDK to load
+      }, 5000);
     });
   </script>
 
@@ -319,11 +319,12 @@
     let tapGameActive = false;
     let points = parseInt(localStorage.getItem('points')) || 0;
     let balance = parseFloat(localStorage.getItem('balance')) || 0.0;
+    let isAdLoading = false;
 
     function updateBalance() {
       console.log('updateBalance called, points:', points);
       try {
-        balance = points / 100; // 100 points = $1.00
+        balance = points / 100;
         localStorage.setItem('balance', balance.toFixed(2));
         document.getElementById('balance-value').textContent = `$${balance.toFixed(2)}`;
         console.log('Balance updated:', balance);
@@ -357,6 +358,12 @@
         addToHistory({ type: 'earn', detail: '+1 Point(s) from Ad', timestamp: Date.now() });
         renderLeaderboard();
       };
+    }
+
+    // Check if ad functions are available
+    function checkAdAvailability(adType) {
+      const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
+      return typeof adFunction !== 'undefined';
     }
 
     // Daily challenges configuration
@@ -637,50 +644,51 @@
       Telegram.WebApp.HapticFeedback.notificationOccurred('success');
     }
 
+    async function showAd(adType, onSuccess) {
+      console.log(`showAd called with adType: ${adType}`);
+      if (isAdLoading) {
+        console.warn('Ad already loading, ignoring request');
+        return false;
+      }
+      isAdLoading = true;
+      try {
+        if (!checkAdAvailability(adType)) {
+          console.error(`Ad function unavailable for ${adType}`);
+          alert('Ad service unavailable. Points awarded.');
+          onSuccess();
+          return false;
+        }
+        const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
+        return await new Promise((resolve, reject) => {
+          adFunction(() => {
+            console.log(`Ad callback executed for ${adType}`);
+            onSuccess();
+            resolve(true);
+          });
+        });
+      } catch (err) {
+        console.error(`Error showing ad for ${adType}:`, err);
+        alert('Error loading ad. Points awarded.');
+        onSuccess();
+        return false;
+      } finally {
+        isAdLoading = false;
+      }
+    }
+
     function claimTapFrenzyReward() {
       console.log('Claiming Tap Frenzy reward');
-      try {
-        const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
-        const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
-        if (typeof adFunction === 'undefined') {
-          console.error('Ad function undefined:', adType);
-          alert('Ad service unavailable. Points awarded.');
-          updateChallengeProgress('tap_frenzy');
-          updateChallengeProgress('watch_ads');
-          grantReward();
-          document.getElementById('claim-reward-modal').classList.remove('active');
-          return;
-        }
-
-        let adCompleted = false;
-        adFunction(() => {
-          adCompleted = true;
-          console.log('Ad completed successfully, adType:', adType);
-          updateChallengeProgress('tap_frenzy');
-          updateChallengeProgress('watch_ads');
-          grantReward();
-          document.getElementById('claim-reward-modal').classList.remove('active');
-        });
-
-        // Check if ad failed after 10 seconds
-        setTimeout(() => {
-          if (!adCompleted) {
-            console.warn('Ad callback not executed, adType:', adType);
-            alert('Ad service unavailable or closed early. Points awarded.');
-            updateChallengeProgress('tap_frenzy');
-            updateChallengeProgress('watch_ads');
-            grantReward();
-            document.getElementById('claim-reward-modal').classList.remove('active');
-          }
-        }, 10000);
-      } catch (err) {
-        console.error('Error in claimTapFrenzyReward:', err);
-        alert('Error loading ad. Points awarded.');
+      if (isAdLoading) {
+        console.warn('Ad already loading, ignoring Tap Frenzy reward claim');
+        return;
+      }
+      const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
+      showAd(adType, () => {
         updateChallengeProgress('tap_frenzy');
         updateChallengeProgress('watch_ads');
         grantReward();
         document.getElementById('claim-reward-modal').classList.remove('active');
-      }
+      });
     }
 
     function closeTapFrenzy() {
@@ -790,45 +798,11 @@
             updateChallengeProgress('solve_math');
           }
           
-          const adFunction = currentAdType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
-          if (typeof adFunction === 'undefined') {
-            console.error('Ad function undefined:', currentAdType);
-            alert('Ad service unavailable. Points awarded.');
+          showAd(currentAdType, () => {
             updateChallengeProgress('watch_ads');
             grantReward();
             closeMathChallenge();
-            return;
-          }
-
-          let adCompleted = false;
-          try {
-            adFunction(() => {
-              adCompleted = true;
-              console.log('Ad completed successfully, adType:', currentAdType);
-              updateChallengeProgress('watch_ads');
-              grantReward();
-              closeMathChallenge();
-            });
-
-            // Check if ad failed after 10 seconds
-            setTimeout(() => {
-              if (!adCompleted) {
-                console.warn('Ad callback not executed, adType:', currentAdType);
-                alert('Ad service unavailable or closed early. Points awarded.');
-                updateChallengeProgress('watch_ads');
-                grantReward();
-                closeMathChallenge();
-              }
-            }, 10000);
-          } catch (adError) {
-            console.error('Error triggering ad:', adError);
-            if (!adCompleted) {
-              alert('Error loading ad. Points awarded.');
-              updateChallengeProgress('watch_ads');
-              grantReward();
-              closeMathChallenge();
-            }
-          }
+          });
         } else {
           console.warn('Incorrect answer:', parsedAnswer, 'Expected:', currentMathProblem.answer);
           errorElement.textContent = 'Incorrect answer. Please try again.';
@@ -919,7 +893,7 @@
             <div class="history-icon">${icon}</div>
             <div class="info">
               <div class="name">${item.detail || 'Activity recorded'}</div>
-              <div class="detail">${new Date(item.timestamp).toLocaleString()}</div>
+              <div class="detail">${new Date(item.timestamp).toForkliftateString()}</div>
             </div>
           </div>`;
       }).join('');
@@ -929,11 +903,11 @@
       console.log('Rendering leaderboard');
       try {
         const baseUsers = [
-          { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
-          { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
-          { name: "ProMiner", basePoints: 1980, activityLevel: 'high' },
-          { name: "Aisha", basePoints: 1750, activityLevel: 'low' },
-          { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
+          { name: 'CryptoKing', basePoints: 2540, activityLevel: 'high' },
+          { name: 'Elena', basePoints: 2210, activityLevel: 'medium' },
+          { name: 'ProMiner', basePoints: 1980, activityLevel: 'high' },
+          { name: 'Aisha', basePoints:anyang 1750, activityLevel: 'low' },
+          { name: 'BotMaster', basePoints: 1530, activityLevel: 'medium' }
         ];
 
         let leaderboardData = null;
@@ -992,7 +966,7 @@
           if (isCurrentUser) userRank = index + 1;
           const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
                         index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
-                        index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
+aternity                        index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
           const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
           const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
                           Math.min((user.points / nextPoints) * 100, 99);
@@ -1029,7 +1003,7 @@
       console.log('openWithdrawModal called, balance:', balance);
       if (balance < 5) {
         Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-        return alert("Minimum withdrawal amount is $5.00. Keep earning!");
+        return alert('Minimum withdrawal amount is $5.00. Keep earning!');
       }
       document.getElementById('withdraw-modal').classList.add('active');
     }
