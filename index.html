@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -54,7 +15,7 @@
     window.addEventListener('load', () => {
       setTimeout(() => {
         console.log('Monetag SDK status:', typeof show_9981456 !== 'undefined' ? 'Loaded' : 'Not loaded');
-      }, 2000);
+      }, 2000); // Wait 2 seconds for SDK to load
     });
   </script>
 
@@ -209,29 +170,25 @@
       75% { transform: translate(150px, 100px); }
       100% { transform: translate(0, 0); }
     }
-    .tap-counter, .tap-timer, .memory-counter, .memory-timer, .spin-result { font-size: 16px; margin-bottom: 10px; }
+    .tap-counter, .tap-timer { font-size: 16px; margin-bottom: 10px; }
     .memory-grid {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 100%; max-width: 280px; margin: 0 auto;
+      display: grid; grid-template-columns: repeat(4, 60px); gap: 10px; justify-content: center;
+      width: 280px; margin: 0 auto 20px; touch-action: manipulation;
     }
     .memory-card {
-      width: 60px; height: 60px; background: var(--secondary-color); border-radius: 8px; display: flex;
-      align-items: center; justify-content: center; font-size: 24px; cursor: pointer; transition: transform 0.3s;
-      transform-style: preserve-3d;
+      width: 60px; height: 60px; background: var(--card-bg); border-radius: 8px; cursor: pointer;
+      position: relative; transform-style: preserve-3d; transition: transform 0.3s;
+      border: 1px solid rgba(255, 255, 255, 0.1);
     }
     .memory-card.flipped { transform: rotateY(180deg); }
-    .memory-card.matched { background: var(--primary-color); }
-    .spin-wheel {
-      width: 200px; height: 200px; background: conic-gradient(
-        #ff5555 0deg 45deg, #55ff55 45deg 90deg, #5555ff 90deg 135deg,
-        #ffff55 135deg 180deg, #ff55ff 180deg 225deg, #55ffff 225deg 270deg,
-        #ffaa55 270deg 315deg, #aa55ff 315deg 360deg
-      );
-      border-radius: 50%; margin: 0 auto; position: relative; transition: transform 3s ease-out;
+    .memory-card.matched { background: rgba(46, 217, 20, 0.2); border-color: var(--primary-color); }
+    .memory-card .front, .memory-card .back {
+      position: absolute; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+      backface-visibility: hidden; font-size: 24px;
     }
-    .spin-wheel::after {
-      content: '▶'; position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 20px; color: var(--primary-color);
-    }
-    .spin-wheel.spinning { transform: rotate(1080deg); }
+    .memory-card .front { background: var(--secondary-color); transform: rotateY(0deg); }
+    .memory-card .back { background: var(--card-bg); transform: rotateY(180deg); color: var(--accent-color); }
+    .move-counter, .memory-timer { font-size: 16px; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -255,11 +212,6 @@
         <div class="task-card" id="check-in-card" onclick="checkIn()">
             <div class="task-icon"><i class="fa-solid fa-calendar-check"></i></div>
             <div class="task-details"><h3>Daily Check-in</h3><p>Check in daily to earn bonus points!</p></div>
-            <div class="task-arrow"><i class="fa-solid fa-chevron-right"></i></div>
-        </div>
-        <div class="task-card" id="lucky-spin-card" onclick="startLuckySpin()">
-            <div class="task-icon"><i class="fa-solid fa-circle-notch"></i></div>
-            <div class="task-details"><h3>Lucky Spin</h3><p>Spin the wheel for a chance to win points!</p></div>
             <div class="task-arrow"><i class="fa-solid fa-chevron-right"></i></div>
         </div>
         <div class="task-card" onclick="showView('tasks-view')">
@@ -358,40 +310,27 @@
         </div>
     </div>
   </div>
-  <!-- MEMORY MATCH MODAL -->
-  <div class="modal-overlay" id="memory-match-modal">
-    <div class="modal-content">
-        <h3>Memory Match</h3>
-        <p>Match 8 pairs in 30 seconds!</p>
-        <div class="memory-counter">Pairs: <span id="memory-pairs">0</span>/8</div>
-        <div class="memory-timer">Time: <span id="memory-timer">30</span>s</div>
-        <div class="memory-grid" id="memory-grid"></div>
-        <div class="modal-actions">
-            <button class="action-button secondary-button" onclick="closeMemoryMatch()">Cancel</button>
-        </div>
-    </div>
-  </div>
-  <!-- LUCKY SPIN MODAL -->
-  <div class="modal-overlay" id="lucky-spin-modal">
-    <div class="modal-content">
-        <h3>Lucky Spin</h3>
-        <p>Spin the wheel for a chance to win points!</p>
-        <div class="spin-result" id="spin-result">Spin to win!</div>
-        <div class="spin-wheel" id="spin-wheel"></div>
-        <div class="modal-actions">
-            <button class="action-button secondary-button" onclick="closeLuckySpin()">Cancel</button>
-            <button class="action-button primary-button" id="spin-button" onclick="startLuckySpin()">Spin</button>
-        </div>
-    </div>
-  </div>
   <!-- CLAIM REWARD MODAL -->
   <div class="modal-overlay" id="claim-reward-modal">
     <div class="modal-content">
         <h3>Claim Your Reward</h3>
-        <p id="claim-reward-text">Watch an ad to claim your reward!</p>
+        <p>Watch an ad to claim your 5-point reward!</p>
         <div class="modal-actions">
             <button class="action-button secondary-button" onclick="closeClaimRewardModal()">Cancel</button>
             <button class="action-button primary-button" onclick="claimGameReward()">Watch Ad</button>
+        </div>
+    </div>
+  </div>
+  <!-- MEMORY MATCH MODAL -->
+  <div class="modal-overlay" id="memory-match-modal">
+    <div class="modal-content">
+        <h3>Memory Match</h3>
+        <p>Match all 8 pairs in 30 seconds or 20 moves!</p>
+        <div class="move-counter">Moves: <span id="move-count">0</span>/20</div>
+        <div class="memory-timer">Time: <span id="memory-timer">30</span>s</div>
+        <div class="memory-grid" id="memory-grid"></div>
+        <div class="modal-actions">
+            <button class="action-button secondary-button" onclick="closeMemoryMatch()">Cancel</button>
         </div>
     </div>
   </div>
@@ -406,11 +345,11 @@
     let tapTimer = null;
     let tapGameActive = false;
     let memoryCards = [];
-    let memoryFlippedCards = [];
-    let memoryPairs = 0;
     let memoryTimer = null;
     let memoryGameActive = false;
-    let spinReward = 0;
+    let moveCount = 0;
+    let matchCount = 0;
+    let flippedCards = [];
     let currentGame = null;
 
     function addToHistory(entry) {
@@ -431,12 +370,14 @@
       { id: 'watch_ads', name: 'Watch Ads', description: 'Watch 20 ads to earn bonus points.', goal: 20, reward: 10, icon: 'fa-rectangle-ad' },
       { id: 'solve_math', name: 'Math Whiz', description: 'Solve 20 math challenges.', goal: 20, reward: 15, icon: 'fa-calculator' },
       { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 10 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' },
-      { id: 'memory_match', name: 'Memory Match', description: 'Match 8 pairs in 30 seconds.', goal: 8, reward: 10, icon: 'fa-puzzle-piece' }
+      { id: 'memory_match', name: 'Memory Match', description: 'Match 8 pairs in 30 seconds.', goal: 8, reward: 5, icon: 'fa-memory' }
     ];
 
     function initDailyChallenges() {
       const today = new Date().toISOString().split('T')[0];
       let challengeData = JSON.parse(localStorage.getItem('dailyChallenges')) || { lastUpdated: today, progress: {} };
+      
+      // Reset challenges if new day
       if (challengeData.lastUpdated !== today) {
         challengeData = { lastUpdated: today, progress: {} };
         dailyChallenges.forEach(challenge => {
@@ -452,10 +393,11 @@
       const challengeData = initDailyChallenges();
       const today = new Date().toISOString().split('T')[0];
       if (challengeData.lastUpdated !== today) {
-        initDailyChallenges();
+        initDailyChallenges(); // Reset if date changed during session
       }
       const challenge = dailyChallenges.find(c => c.id === challengeId);
       if (!challenge || challengeData.progress[challengeId].completed) return;
+
       challengeData.progress[challengeId].count += increment;
       if (challengeData.progress[challengeId].count >= challenge.goal) {
         challengeData.progress[challengeId].completed = true;
@@ -464,16 +406,42 @@
         addToHistory({ type: 'earn', detail: `+${challenge.reward} Point(s) from ${challenge.name}`, timestamp: Date.now() });
         alert(`Congratulations! You completed "${challenge.name}" and earned ${challenge.reward} points!`);
         Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-        renderLeaderboard();
+        renderLeaderboard(); // Refresh leaderboard with new points
       }
       localStorage.setItem('dailyChallenges', JSON.stringify(challengeData));
       renderDailyChallenges();
       console.log(`Updated challenge ${challengeId}:`, challengeData.progress[challengeId]);
     }
 
+    function renderDailyChallenges() {
+      const challengeData = initDailyChallenges();
+      const list = document.getElementById('daily-challenges');
+      list.innerHTML = dailyChallenges.map(challenge => {
+        const progress = challengeData.progress[challenge.id] || { count: 0, completed: false };
+        const isCompleted = progress.completed;
+        const onclick = isCompleted ? '' :
+          challenge.id === 'watch_ads' ? `showMathChallenge('interstitial')` :
+          challenge.id === 'solve_math' ? `showMathChallenge('popup')` :
+          challenge.id === 'tap_frenzy' ? `startTapFrenzy()` :
+          `startMemoryMatch()`;
+        return `
+          <div class="task-card ${isCompleted ? 'completed' : ''}" ${isCompleted ? '' : `onclick="${onclick}"`}>
+            <div class="task-icon"><i class="fa-solid ${challenge.icon}"></i></div>
+            <div class="task-details">
+              <h3>${challenge.name}</h3>
+              <p>${challenge.description}</p>
+            </div>
+            <div class="task-progress">${progress.count}/${challenge.goal} ${isCompleted ? '<i class="fa-solid fa-check"></i>' : ''}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function initCheckIn() {
       const today = new Date().toISOString().split('T')[0];
       let checkInData = JSON.parse(localStorage.getItem('checkInData')) || { lastCheckIn: null, checkedIn: false };
+      
+      // Reset check-in if new day
       if (checkInData.lastCheckIn !== today) {
         checkInData = { lastCheckIn: null, checkedIn: false };
         localStorage.setItem('checkInData', JSON.stringify(checkInData));
@@ -508,40 +476,13 @@
       if (checkInData.checkedIn) {
         card.classList.add('completed', 'disabled');
         card.querySelector('.task-details p').textContent = 'You’ve checked in today!';
-        card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-check"></i>';
+        card.querySelector('.task-progress').innerHTML = '<i class="fa-solid fa-check"></i>';
         card.onclick = null;
       } else {
         card.classList.remove('completed', 'disabled');
         card.querySelector('.task-details p').textContent = 'Check in daily to earn bonus points!';
-        card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+        card.querySelector('.task-progress').innerHTML = '';
         card.onclick = checkIn;
-      }
-    }
-
-    function initLuckySpin() {
-      const today = new Date().toISOString().split('T')[0];
-      let spinData = JSON.parse(localStorage.getItem('spinData')) || { lastSpin: null, spun: false };
-      if (spinData.lastSpin !== today) {
-        spinData = { lastSpin: null, spun: false };
-        localStorage.setItem('spinData', JSON.stringify(spinData));
-        console.log('Lucky Spin reset for', today);
-      }
-      return spinData;
-    }
-
-    function renderLuckySpin() {
-      const spinData = initLuckySpin();
-      const card = document.getElementById('lucky-spin-card');
-      if (spinData.spun) {
-        card.classList.add('completed', 'disabled');
-        card.querySelector('.task-details p').textContent = 'You’ve spun today!';
-        card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-check"></i>';
-        card.onclick = null;
-      } else {
-        card.classList.remove('completed', 'disabled');
-        card.querySelector('.task-details p').textContent = 'Spin the wheel for a chance to win points!';
-        card.querySelector('.task-arrow').innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-        card.onclick = startLuckySpin;
       }
     }
 
@@ -550,18 +491,19 @@
       document.getElementById('check-in-modal').classList.remove('active');
     }
 
-    // Tap Frenzy
     function startTapFrenzy() {
       console.log('Starting Tap Frenzy');
       const modal = document.getElementById('tap-frenzy-modal');
       const tapCountElement = document.getElementById('tap-count');
       const tapTimerElement = document.getElementById('tap-timer');
       const tapTarget = document.getElementById('tap-target');
+
       if (!modal || !tapCountElement || !tapTimerElement || !tapTarget) {
         console.error('Tap Frenzy elements not found');
         alert('Error: Unable to start game. Please try again.');
         return;
       }
+
       tapCount = 0;
       tapGameActive = true;
       let timeLeft = 10;
@@ -569,8 +511,8 @@
       tapTimerElement.textContent = timeLeft;
       modal.classList.add('active');
       Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-      tapTarget.style.animation = 'none';
-      setTimeout(() => { tapTarget.style.animation = 'moveCoin 3s infinite ease-in-out'; }, 10);
+
+      // Start timer
       tapTimer = setInterval(() => {
         timeLeft--;
         tapTimerElement.textContent = timeLeft;
@@ -582,6 +524,12 @@
           console.log('Tap Frenzy timed out, taps:', tapCount);
         }
       }, 1000);
+
+      // Randomize coin position on start
+      tapTarget.style.animation = 'none';
+      setTimeout(() => {
+        tapTarget.style.animation = 'moveCoin 3s infinite ease-in-out';
+      }, 10);
     }
 
     function handleTap() {
@@ -601,9 +549,142 @@
       tapGameActive = false;
       document.getElementById('tap-frenzy-modal').classList.remove('active');
       currentGame = 'tap_frenzy';
-      document.getElementById('claim-reward-text').textContent = 'Watch an ad to claim your 5-point reward!';
       document.getElementById('claim-reward-modal').classList.add('active');
       Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+    }
+
+    function startMemoryMatch() {
+      console.log('Starting Memory Match');
+      const modal = document.getElementById('memory-match-modal');
+      const grid = document.getElementById('memory-grid');
+      const moveCountElement = document.getElementById('move-count');
+      const memoryTimerElement = document.getElementById('memory-timer');
+
+      if (!modal || !grid || !moveCountElement || !memoryTimerElement) {
+        console.error('Memory Match elements not found');
+        alert('Error: Unable to start game. Please try again.');
+        return;
+      }
+
+      // Initialize game state
+      moveCount = 0;
+      matchCount = 0;
+      flippedCards = [];
+      memoryGameActive = true;
+      moveCountElement.textContent = '0';
+      memoryTimerElement.textContent = '30';
+      
+      // Generate 8 pairs (16 cards)
+      const icons = Array(8).fill('fa-coins').concat(Array(8).fill('fa-coins'));
+      memoryCards = icons.map((icon, index) => ({
+        id: index,
+        icon,
+        flipped: false,
+        matched: false
+      }));
+      // Shuffle cards
+      for (let i = memoryCards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [memoryCards[i], memoryCards[j]] = [memoryCards[j], memoryCards[i]];
+      }
+
+      // Render grid
+      grid.innerHTML = memoryCards.map((card, index) => `
+        <div class="memory-card" data-index="${index}" onclick="handleCardFlip(${index})">
+          <div class="front"></div>
+          <div class="back"><i class="fa-solid ${card.icon}"></i></div>
+        </div>
+      `).join('');
+
+      // Start timer
+      let timeLeft = 30;
+      modal.classList.add('active');
+      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+      memoryTimer = setInterval(() => {
+        timeLeft--;
+        memoryTimerElement.textContent = timeLeft;
+        if (timeLeft <= 0) {
+          clearInterval(memoryTimer);
+          memoryGameActive = false;
+          modal.classList.remove('active');
+          alert('Time’s up! Try again to match all pairs.');
+          console.log('Memory Match timed out, matches:', matchCount);
+        }
+      }, 1000);
+    }
+
+    function handleCardFlip(index) {
+      if (!memoryGameActive || memoryCards[index].flipped || memoryCards[index].matched || flippedCards.length >= 2) return;
+
+      memoryCards[index].flipped = true;
+      flippedCards.push(index);
+      const cardElement = document.querySelector(`.memory-card[data-index="${index}"]`);
+      cardElement.classList.add('flipped');
+      Telegram.WebApp.HapticFeedback.impactOccurred('light');
+      console.log('Card flipped, index:', index, 'flippedCards:', flippedCards);
+
+      if (flippedCards.length === 2) {
+        moveCount++;
+        document.getElementById('move-count').textContent = moveCount;
+        const [first, second] = flippedCards;
+        if (memoryCards[first].icon === memoryCards[second].icon) {
+          // Match found
+          memoryCards[first].matched = true;
+          memoryCards[second].matched = true;
+          document.querySelector(`.memory-card[data-index="${first}"]`).classList.add('matched');
+          document.querySelector(`.memory-card[data-index="${second}"]`).classList.add('matched');
+          matchCount++;
+          flippedCards = [];
+          Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+          console.log('Match found, matchCount:', matchCount);
+          if (matchCount >= 8) {
+            completeMemoryMatch();
+          }
+        } else {
+          // No match
+          memoryGameActive = false;
+          setTimeout(() => {
+            memoryCards[first].flipped = false;
+            memoryCards[second].flipped = false;
+            document.querySelector(`.memory-card[data-index="${first}"]`).classList.remove('flipped');
+            document.querySelector(`.memory-card[data-index="${second}"]`).classList.remove('flipped');
+            flippedCards = [];
+            memoryGameActive = true;
+            console.log('No match, cards unflipped');
+          }, 1000);
+        }
+        if (moveCount >= 20) {
+          clearInterval(memoryTimer);
+          memoryGameActive = false;
+          document.getElementById('memory-match-modal').classList.remove('active');
+          alert('Max moves reached! Try again to match all pairs.');
+          console.log('Memory Match max moves reached, matches:', matchCount);
+        }
+      }
+    }
+
+    function completeMemoryMatch() {
+      console.log('Memory Match completed, matches:', matchCount);
+      clearInterval(memoryTimer);
+      memoryGameActive = false;
+      document.getElementById('memory-match-modal').classList.remove('active');
+      currentGame = 'memory_match';
+      document.getElementById('claim-reward-modal').classList.add('active');
+      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+    }
+
+    function claimGameReward() {
+      console.log('Claiming game reward for:', currentGame);
+      const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
+      const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
+      adFunction(() => {
+        updateChallengeProgress(currentGame);
+        updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
+        grantReward(); // Award 1 point for ad
+        document.getElementById('claim-reward-modal').classList.remove('active');
+        console.log('Game reward claimed, game:', currentGame, 'adType:', adType);
+        currentGame = null;
+      });
     }
 
     function closeTapFrenzy() {
@@ -613,98 +694,6 @@
       document.getElementById('tap-frenzy-modal').classList.remove('active');
     }
 
-    // Memory Match
-    function startMemoryMatch() {
-      console.log('Starting Memory Match');
-      const modal = document.getElementById('memory-match-modal');
-      const grid = document.getElementById('memory-grid');
-      const pairsElement = document.getElementById('memory-pairs');
-      const timerElement = document.getElementById('memory-timer');
-      if (!modal || !grid || !pairsElement || !timerElement) {
-        console.error('Memory Match elements not found');
-        alert('Error: Unable to start game. Please try again.');
-        return;
-      }
-      memoryCards = [];
-      memoryFlippedCards = [];
-      memoryPairs = 0;
-      memoryGameActive = true;
-      let timeLeft = 30;
-      pairsElement.textContent = '0';
-      timerElement.textContent = timeLeft;
-      const icons = ['😺', '🐶', '🐰', '🦁', '🐘', '🐼', '🦒', '🐸'].flatMap(icon => [icon, icon]);
-      memoryCards = icons.sort(() => Math.random() - 0.5).map((icon, index) => ({ id: index, icon, flipped: false, matched: false }));
-      grid.innerHTML = memoryCards.map(card => `
-        <div class="memory-card ${card.flipped ? 'flipped' : ''} ${card.matched ? 'matched' : ''}" data-id="${card.id}" onclick="handleCardFlip(${card.id})">
-          <span style="transform: rotateY(180deg);">${card.flipped || card.matched ? card.icon : ''}</span>
-        </div>
-      `).join('');
-      modal.classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-      memoryTimer = setInterval(() => {
-        timeLeft--;
-        timerElement.textContent = timeLeft;
-        if (timeLeft <= 0) {
-          clearInterval(memoryTimer);
-          memoryGameActive = false;
-          modal.classList.remove('active');
-          alert('Time’s up! Try again to match all pairs.');
-          console.log('Memory Match timed out, pairs:', memoryPairs);
-        }
-      }, 1000);
-    }
-
-    function handleCardFlip(cardId) {
-      if (!memoryGameActive || memoryFlippedCards.length >= 2) return;
-      const card = memoryCards.find(c => c.id === cardId);
-      if (card.flipped || card.matched) return;
-      card.flipped = true;
-      memoryFlippedCards.push(card);
-      Telegram.WebApp.HapticFeedback.impactOccurred('light');
-      const grid = document.getElementById('memory-grid');
-      grid.innerHTML = memoryCards.map(card => `
-        <div class="memory-card ${card.flipped ? 'flipped' : ''} ${card.matched ? 'matched' : ''}" data-id="${card.id}" onclick="handleCardFlip(${card.id})">
-          <span style="transform: rotateY(180deg);">${card.flipped || card.matched ? card.icon : ''}</span>
-        </div>
-      `).join('');
-      if (memoryFlippedCards.length === 2) {
-        const [card1, card2] = memoryFlippedCards;
-        if (card1.icon === card2.icon) {
-          card1.matched = card2.matched = true;
-          memoryPairs++;
-          document.getElementById('memory-pairs').textContent = memoryPairs;
-          memoryFlippedCards = [];
-          Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-          if (memoryPairs >= 8) {
-            completeMemoryMatch();
-          }
-        } else {
-          setTimeout(() => {
-            card1.flipped = card2.flipped = false;
-            memoryFlippedCards = [];
-            grid.innerHTML = memoryCards.map(card => `
-              <div class="memory-card ${card.flipped ? 'flipped' : ''} ${card.matched ? 'matched' : ''}" data-id="${card.id}" onclick="handleCardFlip(${card.id})">
-                <span style="transform: rotateY(180deg);">${card.flipped || card.matched ? card.icon : ''}</span>
-              </div>
-            `).join('');
-            Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-          }, 1000);
-        }
-      }
-      console.log('Card flipped, id:', cardId, 'pairs:', memoryPairs);
-    }
-
-    function completeMemoryMatch() {
-      console.log('Memory Match completed, pairs:', memoryPairs);
-      clearInterval(memoryTimer);
-      memoryGameActive = false;
-      document.getElementById('memory-match-modal').classList.remove('active');
-      currentGame = 'memory_match';
-      document.getElementById('claim-reward-text').textContent = 'Watch an ad to claim your 10-point reward!';
-      document.getElementById('claim-reward-modal').classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-    }
-
     function closeMemoryMatch() {
       console.log('Closing Memory Match modal');
       clearInterval(memoryTimer);
@@ -712,92 +701,16 @@
       document.getElementById('memory-match-modal').classList.remove('active');
     }
 
-    // Lucky Spin
-    function startLuckySpin() {
-      const spinData = initLuckySpin();
-      const today = new Date().toISOString().split('T')[0];
-      if (spinData.lastSpin === today) {
-        console.log('Already spun today');
-        return;
-      }
-      console.log('Starting Lucky Spin');
-      const modal = document.getElementById('lucky-spin-modal');
-      const wheel = document.getElementById('spin-wheel');
-      const result = document.getElementById('spin-result');
-      const spinButton = document.getElementById('spin-button');
-      if (!modal || !wheel || !result || !spinButton) {
-        console.error('Lucky Spin elements not found');
-        alert('Error: Unable to start game. Please try again.');
-        return;
-      }
-      spinReward = Math.floor(Math.random() * 10) + 1; // 1-10 points
-      result.textContent = 'Spinning...';
-      spinButton.disabled = true;
-      wheel.classList.add('spinning');
-      modal.classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-      setTimeout(() => {
-        completeLuckySpin();
-      }, 3000);
-    }
-
-    function completeLuckySpin() {
-      console.log('Lucky Spin completed, reward:', spinReward);
-      document.getElementById('spin-result').textContent = `You won ${spinReward} points!`;
-      document.getElementById('spin-button').style.display = 'none';
-      document.getElementById('lucky-spin-modal').classList.remove('active');
-      currentGame = 'lucky_spin';
-      document.getElementById('claim-reward-text').textContent = `Watch an ad to claim your ${spinReward}-point reward!`;
-      document.getElementById('claim-reward-modal').classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-    }
-
-    function closeLuckySpin() {
-      console.log('Closing Lucky Spin modal');
-      document.getElementById('lucky-spin-modal').classList.remove('active');
-      document.getElementById('spin-wheel').classList.remove('spinning');
-      document.getElementById('spin-result').textContent = 'Spin to win!';
-      document.getElementById('spin-button').style.display = 'block';
-      document.getElementById('spin-button').disabled = false;
-    }
-
-    function claimGameReward() {
-      console.log('Claiming game reward for:', currentGame);
-      const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
-      const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
-      adFunction(() => {
-        if (currentGame === 'tap_frenzy') {
-          updateChallengeProgress('tap_frenzy');
-        } else if (currentGame === 'memory_match') {
-          updateChallengeProgress('memory_match');
-        } else if (currentGame === 'lucky_spin') {
-          const spinData = initLuckySpin();
-          spinData.lastSpin = new Date().toISOString().split('T')[0];
-          spinData.spun = true;
-          points += spinReward;
-          document.getElementById('points-value').textContent = points;
-          addToHistory({ type: 'earn', detail: `+${spinReward} Point(s) from Lucky Spin`, timestamp: Date.now() });
-          localStorage.setItem('spinData', JSON.stringify(spinData));
-          alert(`Congratulations! You earned ${spinReward} points from Lucky Spin!`);
-          renderLuckySpin();
-          renderLeaderboard();
-        }
-        updateChallengeProgress('watch_ads');
-        grantReward();
-        document.getElementById('claim-reward-modal').classList.remove('active');
-        console.log('Game reward claimed, adType:', adType);
-      });
-    }
-
     function closeClaimRewardModal() {
       console.log('Closing claim reward modal');
       document.getElementById('claim-reward-modal').classList.remove('active');
+      currentGame = null;
     }
 
     function generateMathProblem() {
       console.log('Generating math problem...');
-      const num1 = Math.floor(Math.random() * 10) + 1;
-      const num2 = Math.floor(Math.random() * 10) + 1;
+      const num1 = Math.floor(Math.random() * 10) + 1; // 1 to 10
+      const num2 = Math.floor(Math.random() * 10) + 1; // 1 to 10
       const answer = num1 + num2;
       return { question: `What is ${num1} + ${num2}?`, answer };
     }
@@ -809,19 +722,21 @@
         const questionElement = document.getElementById('math-question');
         const answerInput = document.getElementById('math-answer');
         const errorElement = document.getElementById('math-error');
+
         if (!modal || !questionElement || !answerInput || !errorElement) {
-          console.error('Math challenge modal elements not found');
+          console.error('Math challenge modal elements not found:', { modal, questionElement, answerInput, errorElement });
           alert('Error: Unable to display math challenge. Please try again.');
           return;
         }
+
         currentAdType = adType;
         currentMathProblem = generateMathProblem();
         questionElement.textContent = currentMathProblem.question;
         answerInput.value = '';
         errorElement.style.display = 'none';
-        modal.style.display = 'none';
+        modal.style.display = 'none'; // Ensure initial state
         modal.classList.add('active');
-        console.log('Math challenge modal visible');
+        console.log('Math challenge modal should be visible, active class added.');
         answerInput.focus();
       } catch (err) {
         console.error('Error in showMathChallenge:', err);
@@ -830,18 +745,21 @@
     }
 
     function closeMathChallenge() {
-      console.log('Closing math challenge modal');
-      document.getElementById('math-challenge-modal').classList.remove('active');
+      console.log('Closing math challenge modal.');
+      const modal = document.getElementById('math-challenge-modal');
+      if (modal) {
+        modal.classList.remove('active');
+      }
       currentMathProblem = null;
       currentAdType = null;
     }
 
     function submitMathChallenge() {
-      console.log('submitMathChallenge called, answer:', document.getElementById('math-answer').value);
+      console.log('submitMathChallenge called, user answer:', document.getElementById('math-answer').value);
       const answerInput = document.getElementById('math-answer');
       const errorElement = document.getElementById('math-error');
       if (!answerInput || !errorElement) {
-        console.error('Math challenge input or error element not found');
+        console.error('Math challenge input or error element not found.');
         alert('Error: Unable to process answer. Please try again.');
         return;
       }
@@ -855,7 +773,7 @@
       if (userAnswer === currentMathProblem.answer) {
         console.log('Correct answer, proceeding to ad:', currentAdType);
         document.getElementById('math-challenge-modal').classList.remove('active');
-        updateChallengeProgress('solve_math');
+        updateChallengeProgress('solve_math'); // Track math challenge completion
         if (currentAdType === 'interstitial') {
           showMonetagRewardedInterstitial(() => {
             grantReward();
@@ -870,7 +788,7 @@
         currentMathProblem = null;
         currentAdType = null;
       } else {
-        console.warn('Incorrect answer, user:', userAnswer, 'correct:', currentMathProblem.answer);
+        console.warn('Incorrect answer, userAnswer:', userAnswer, 'correctAnswer:', currentMathProblem.answer);
         errorElement.style.display = 'block';
         Telegram.WebApp.HapticFeedback.notificationOccurred('error');
       }
@@ -912,7 +830,6 @@
       renderLeaderboard();
       renderDailyChallenges();
       renderCheckIn();
-      renderLuckySpin();
     }
 
     function showView(viewId) {
@@ -921,14 +838,11 @@
       document.getElementById(viewId).classList.add('active');
       document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
       const activeBtn = document.querySelector(`.nav-button[onclick="showView('${viewId}')"]`);
-      if (activeBtn) activeBtn.classList.add('active');
+      if(activeBtn) activeBtn.classList.add('active');
       if (viewId === 'history-view') renderHistory();
       if (viewId === 'leaderboard-view') renderLeaderboard();
       if (viewId === 'tasks-view') renderDailyChallenges();
-      if (viewId === 'home-view') {
-        renderCheckIn();
-        renderLuckySpin();
-      }
+      if (viewId === 'home-view') renderCheckIn();
     }
 
     function renderHistory() {
@@ -956,6 +870,7 @@
     function renderLeaderboard() {
       console.log('Rendering leaderboard');
       try {
+        // Base users with initial points and activity levels
         const baseUsers = [
           { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
           { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
@@ -963,28 +878,42 @@
           { name: "Aisha", basePoints: 1750, activityLevel: 'low' },
           { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
         ];
+
+        // Load or initialize leaderboard data from localStorage
         let leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
           lastUpdated: new Date().toISOString().split('T')[0],
-          users: baseUsers.map(user => ({ ...user, points: user.basePoints }))
+          users: baseUsers.map(user => ({
+            ...user,
+            points: user.basePoints
+          }))
         };
+
+        // Calculate days since last update
         const today = new Date().toISOString().split('T')[0];
         const lastUpdated = new Date(leaderboardData.lastUpdated);
         const daysDiff = Math.floor((new Date(today) - lastUpdated) / (1000 * 60 * 60 * 24));
+
+        // Update points for top earners based on activity level
         if (daysDiff > 0) {
           leaderboardData.users = leaderboardData.users.map(user => {
-            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 :
-                                 user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 :
-                                 Math.floor(Math.random() * 6) + 1;
-            return { ...user, points: user.points + (dailyIncrease * daysDiff) };
+            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 : // 10-25
+                              user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 : // 5-15
+                              Math.floor(Math.random() * 6) + 1; // 1-6
+            return {
+              ...user,
+              points: user.points + (dailyIncrease * daysDiff)
+            };
           });
           leaderboardData.lastUpdated = today;
           localStorage.setItem('leaderboardData', JSON.stringify(leaderboardData));
           console.log('Updated leaderboard points for', daysDiff, 'days:', leaderboardData.users);
         }
+
+        // Add login user
         let allUsers = [...leaderboardData.users];
         let userRank = null;
         if (tgUser && tgUser.first_name) {
-          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
+          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000; // Use actual points or random 1000-1500
           const loginUser = {
             name: tgUser.first_name,
             points: userPoints,
@@ -992,19 +921,24 @@
             activityLevel: 'medium'
           };
           allUsers.push(loginUser);
-          console.log('Added login user to leaderboard:', loginUser.name, 'points:', userPoints);
+          console.log('Added login user to leaderboard:', loginUser.name, 'with points:', userPoints);
+        } else {
+          console.warn('No login user available for leaderboard.');
         }
+
+        // Sort by points (descending) and render top 5
         allUsers.sort((a, b) => b.points - a.points);
         const list = document.getElementById('leaderboard-list');
         list.innerHTML = allUsers.slice(0, 5).map((user, index) => {
           const isCurrentUser = tgUser && user.name === tgUser.first_name;
           if (isCurrentUser) userRank = index + 1;
           const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
-                       index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
-                       index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
+                        index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
+                        index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
+          // Calculate progress to next rank
           const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
           const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
-                         Math.min((user.points / nextPoints) * 100, 99);
+                          Math.min((user.points / nextPoints) * 100, 99); // Cap at 99% for non-#1
           return `
             <div class="list-item ${isCurrentUser ? 'current-user' : ''} rank-${index + 1}">
               <div class="rank">#${index + 1}</div>
@@ -1020,14 +954,9 @@
             </div>
           `;
         }).join('');
-        if (userRank && lastUserRank && userRank < lastUserRank) {
-          document.getElementById('rank-notification').textContent = `Rank Up! You’re now #${userRank}!`;
-          document.getElementById('rank-notification').classList.add('active');
-          setTimeout(() => {
-            document.getElementById('rank-notification').classList.remove('active');
-          }, 3000);
-        }
-        lastUserRank = userRank;
+
+        // Show rank notification if user improved rank
+        if (userRank) showRankNotification(userRank);
       } catch (err) {
         console.error('Error rendering leaderboard:', err);
         document.getElementById('leaderboard-list').innerHTML = `<div class="list-item"><div class="info"><div class="name">Error loading leaderboard.</div><div class="detail">Please try again later.</div></div></div>`;
