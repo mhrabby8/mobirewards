@@ -171,24 +171,6 @@
       100% { transform: translate(0, 0); }
     }
     .tap-counter, .tap-timer { font-size: 16px; margin-bottom: 10px; }
-    .memory-grid {
-      display: grid; grid-template-columns: repeat(4, 60px); gap: 10px; justify-content: center;
-      width: 280px; margin: 0 auto 20px; touch-action: manipulation;
-    }
-    .memory-card {
-      width: 60px; height: 60px; background: var(--card-bg); border-radius: 8px; cursor: pointer;
-      position: relative; transform-style: preserve-3d; transition: transform 0.3s;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    .memory-card.flipped { transform: rotateY(180deg); }
-    .memory-card.matched { background: rgba(46, 217, 20, 0.2); border-color: var(--primary-color); }
-    .memory-card .front, .memory-card .back {
-      position: absolute; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-      backface-visibility: hidden; font-size: 24px;
-    }
-    .memory-card .front { background: var(--secondary-color); transform: rotateY(0deg); }
-    .memory-card .back { background: var(--card-bg); transform: rotateY(180deg); color: var(--accent-color); }
-    .move-counter, .memory-timer { font-size: 16px; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -317,20 +299,7 @@
         <p>Watch an ad to claim your 5-point reward!</p>
         <div class="modal-actions">
             <button class="action-button secondary-button" onclick="closeClaimRewardModal()">Cancel</button>
-            <button class="action-button primary-button" onclick="claimGameReward()">Watch Ad</button>
-        </div>
-    </div>
-  </div>
-  <!-- MEMORY MATCH MODAL -->
-  <div class="modal-overlay" id="memory-match-modal">
-    <div class="modal-content">
-        <h3>Memory Match</h3>
-        <p>Match all 8 pairs in 30 seconds or 20 moves!</p>
-        <div class="move-counter">Moves: <span id="move-count">0</span>/20</div>
-        <div class="memory-timer">Time: <span id="memory-timer">30</span>s</div>
-        <div class="memory-grid" id="memory-grid"></div>
-        <div class="modal-actions">
-            <button class="action-button secondary-button" onclick="closeMemoryMatch()">Cancel</button>
+            <button class="action-button primary-button" onclick="claimTapFrenzyReward()">Watch Ad</button>
         </div>
     </div>
   </div>
@@ -344,13 +313,6 @@
     let tapCount = 0;
     let tapTimer = null;
     let tapGameActive = false;
-    let memoryCards = [];
-    let memoryTimer = null;
-    let memoryGameActive = false;
-    let moveCount = 0;
-    let matchCount = 0;
-    let flippedCards = [];
-    let currentGame = null;
 
     function addToHistory(entry) {
       console.log('Adding to history:', entry);
@@ -369,8 +331,7 @@
     const dailyChallenges = [
       { id: 'watch_ads', name: 'Watch Ads', description: 'Watch 20 ads to earn bonus points.', goal: 20, reward: 10, icon: 'fa-rectangle-ad' },
       { id: 'solve_math', name: 'Math Whiz', description: 'Solve 20 math challenges.', goal: 20, reward: 15, icon: 'fa-calculator' },
-      { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 10 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' },
-      { id: 'memory_match', name: 'Memory Match', description: 'Match 8 pairs in 30 seconds.', goal: 8, reward: 5, icon: 'fa-memory' }
+      { id: 'tap_frenzy', name: 'Tap Frenzy', description: 'Score 20 taps in 10 seconds.', goal: 20, reward: 5, icon: 'fa-hand-pointer' }
     ];
 
     function initDailyChallenges() {
@@ -422,8 +383,7 @@
         const onclick = isCompleted ? '' :
           challenge.id === 'watch_ads' ? `showMathChallenge('interstitial')` :
           challenge.id === 'solve_math' ? `showMathChallenge('popup')` :
-          challenge.id === 'tap_frenzy' ? `startTapFrenzy()` :
-          `startMemoryMatch()`;
+          `startTapFrenzy()`;
         return `
           <div class="task-card ${isCompleted ? 'completed' : ''}" ${isCompleted ? '' : `onclick="${onclick}"`}>
             <div class="task-icon"><i class="fa-solid ${challenge.icon}"></i></div>
@@ -548,142 +508,20 @@
       clearInterval(tapTimer);
       tapGameActive = false;
       document.getElementById('tap-frenzy-modal').classList.remove('active');
-      currentGame = 'tap_frenzy';
       document.getElementById('claim-reward-modal').classList.add('active');
       Telegram.WebApp.HapticFeedback.notificationOccurred('success');
     }
 
-    function startMemoryMatch() {
-      console.log('Starting Memory Match');
-      const modal = document.getElementById('memory-match-modal');
-      const grid = document.getElementById('memory-grid');
-      const moveCountElement = document.getElementById('move-count');
-      const memoryTimerElement = document.getElementById('memory-timer');
-
-      if (!modal || !grid || !moveCountElement || !memoryTimerElement) {
-        console.error('Memory Match elements not found');
-        alert('Error: Unable to start game. Please try again.');
-        return;
-      }
-
-      // Initialize game state
-      moveCount = 0;
-      matchCount = 0;
-      flippedCards = [];
-      memoryGameActive = true;
-      moveCountElement.textContent = '0';
-      memoryTimerElement.textContent = '30';
-      
-      // Generate 8 pairs (16 cards)
-      const icons = Array(8).fill('fa-coins').concat(Array(8).fill('fa-coins'));
-      memoryCards = icons.map((icon, index) => ({
-        id: index,
-        icon,
-        flipped: false,
-        matched: false
-      }));
-      // Shuffle cards
-      for (let i = memoryCards.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [memoryCards[i], memoryCards[j]] = [memoryCards[j], memoryCards[i]];
-      }
-
-      // Render grid
-      grid.innerHTML = memoryCards.map((card, index) => `
-        <div class="memory-card" data-index="${index}" onclick="handleCardFlip(${index})">
-          <div class="front"></div>
-          <div class="back"><i class="fa-solid ${card.icon}"></i></div>
-        </div>
-      `).join('');
-
-      // Start timer
-      let timeLeft = 30;
-      modal.classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-      memoryTimer = setInterval(() => {
-        timeLeft--;
-        memoryTimerElement.textContent = timeLeft;
-        if (timeLeft <= 0) {
-          clearInterval(memoryTimer);
-          memoryGameActive = false;
-          modal.classList.remove('active');
-          alert('Time’s up! Try again to match all pairs.');
-          console.log('Memory Match timed out, matches:', matchCount);
-        }
-      }, 1000);
-    }
-
-    function handleCardFlip(index) {
-      if (!memoryGameActive || memoryCards[index].flipped || memoryCards[index].matched || flippedCards.length >= 2) return;
-
-      memoryCards[index].flipped = true;
-      flippedCards.push(index);
-      const cardElement = document.querySelector(`.memory-card[data-index="${index}"]`);
-      cardElement.classList.add('flipped');
-      Telegram.WebApp.HapticFeedback.impactOccurred('light');
-      console.log('Card flipped, index:', index, 'flippedCards:', flippedCards);
-
-      if (flippedCards.length === 2) {
-        moveCount++;
-        document.getElementById('move-count').textContent = moveCount;
-        const [first, second] = flippedCards;
-        if (memoryCards[first].icon === memoryCards[second].icon) {
-          // Match found
-          memoryCards[first].matched = true;
-          memoryCards[second].matched = true;
-          document.querySelector(`.memory-card[data-index="${first}"]`).classList.add('matched');
-          document.querySelector(`.memory-card[data-index="${second}"]`).classList.add('matched');
-          matchCount++;
-          flippedCards = [];
-          Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-          console.log('Match found, matchCount:', matchCount);
-          if (matchCount >= 8) {
-            completeMemoryMatch();
-          }
-        } else {
-          // No match
-          memoryGameActive = false;
-          setTimeout(() => {
-            memoryCards[first].flipped = false;
-            memoryCards[second].flipped = false;
-            document.querySelector(`.memory-card[data-index="${first}"]`).classList.remove('flipped');
-            document.querySelector(`.memory-card[data-index="${second}"]`).classList.remove('flipped');
-            flippedCards = [];
-            memoryGameActive = true;
-            console.log('No match, cards unflipped');
-          }, 1000);
-        }
-        if (moveCount >= 20) {
-          clearInterval(memoryTimer);
-          memoryGameActive = false;
-          document.getElementById('memory-match-modal').classList.remove('active');
-          alert('Max moves reached! Try again to match all pairs.');
-          console.log('Memory Match max moves reached, matches:', matchCount);
-        }
-      }
-    }
-
-    function completeMemoryMatch() {
-      console.log('Memory Match completed, matches:', matchCount);
-      clearInterval(memoryTimer);
-      memoryGameActive = false;
-      document.getElementById('memory-match-modal').classList.remove('active');
-      currentGame = 'memory_match';
-      document.getElementById('claim-reward-modal').classList.add('active');
-      Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-    }
-
-    function claimGameReward() {
-      console.log('Claiming game reward for:', currentGame);
+    function claimTapFrenzyReward() {
+      console.log('Claiming Tap Frenzy reward');
       const adType = Math.random() < 0.5 ? 'interstitial' : 'popup';
       const adFunction = adType === 'interstitial' ? showMonetagRewardedInterstitial : showMonetagRewardedPopup;
       adFunction(() => {
-        updateChallengeProgress(currentGame);
+        updateChallengeProgress('tap_frenzy');
         updateChallengeProgress('watch_ads'); // Count toward Watch Ads challenge
         grantReward(); // Award 1 point for ad
         document.getElementById('claim-reward-modal').classList.remove('active');
-        console.log('Game reward claimed, game:', currentGame, 'adType:', adType);
-        currentGame = null;
+        console.log('Tap Frenzy reward claimed, adType:', adType);
       });
     }
 
@@ -694,17 +532,9 @@
       document.getElementById('tap-frenzy-modal').classList.remove('active');
     }
 
-    function closeMemoryMatch() {
-      console.log('Closing Memory Match modal');
-      clearInterval(memoryTimer);
-      memoryGameActive = false;
-      document.getElementById('memory-match-modal').classList.remove('active');
-    }
-
     function closeClaimRewardModal() {
       console.log('Closing claim reward modal');
       document.getElementById('claim-reward-modal').classList.remove('active');
-      currentGame = null;
     }
 
     function generateMathProblem() {
