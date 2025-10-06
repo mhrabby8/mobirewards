@@ -319,6 +319,7 @@
     let tapGameActive = false;
     let points = parseInt(localStorage.getItem('points')) || 0;
     let balance = parseFloat(localStorage.getItem('balance')) || 0.0;
+    let adCompleted = false;
 
     function updateBalance() {
       console.log('updateBalance called, points:', points);
@@ -647,30 +648,35 @@
         console.log('Attempting to show ad, adType:', adType);
 
         if (typeof adFunction === 'undefined') {
-          console.error('Ad function undefined:', adType);
+          console.warn('Ad function undefined, using fallback:', adType);
           document.getElementById('claim-reward-modal').classList.remove('active');
-          grantReward(); // Fallback to grantReward for undefined ad function
-          alert(`Failed to load ad or ad was closed early. Please try again.`);
+          grantReward(); // Silent fallback, no error message
           return;
         }
 
+        adCompleted = false;
         adFunction(() => {
           console.log('Ad completed successfully, adType:', adType);
-          updateChallengeProgress('tap_frenzy');
-          updateChallengeProgress('watch_ads');
-          points += pointsPerAd;
-          document.getElementById('points-value').textContent = points;
-          localStorage.setItem('points', points);
-          updateBalance();
-          addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Tap Frenzy`, timestamp: Date.now() });
-          document.getElementById('claim-reward-modal').classList.remove('active');
-          renderLeaderboard();
-          Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-          alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+          if (!adCompleted) {
+            adCompleted = true;
+            updateChallengeProgress('tap_frenzy');
+            updateChallengeProgress('watch_ads');
+            points += pointsPerAd;
+            document.getElementById('points-value').textContent = points;
+            localStorage.setItem('points', points);
+            updateBalance();
+            addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Tap Frenzy`, timestamp: Date.now() });
+            document.getElementById('claim-reward-modal').classList.remove('active');
+            renderLeaderboard();
+            Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+            alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
+          }
         }, () => {
-          console.error('Ad failed or was closed early:', adType);
-          document.getElementById('claim-reward-modal').classList.remove('active');
-          alert(`Failed to load ad or ad was closed early. Please try again.`);
+          console.log('Ad failed or was closed early, adType:', adType);
+          if (!adCompleted) {
+            document.getElementById('claim-reward-modal').classList.remove('active');
+            alert(`Failed to load ad or ad was closed early. Please try again.`);
+          }
         });
       } catch (err) {
         console.error('Error in claimTapFrenzyReward:', err);
@@ -788,36 +794,40 @@
           console.log('Attempting to show ad, adType:', currentAdType);
 
           if (typeof adFunction === 'undefined') {
-            console.error('Ad function undefined:', currentAdType);
+            console.warn('Ad function undefined, using fallback:', currentAdType);
             closeMathChallenge();
-            grantReward(); // Fallback to grantReward for undefined ad function
-            alert(`Failed to load ad or ad was closed early. Please try again.`);
+            grantReward(); // Silent fallback, no error message
             return;
           }
 
+          adCompleted = false;
           adFunction(() => {
             console.log('Ad completed successfully, adType:', currentAdType);
-            if (currentAdType === 'popup') {
-              updateChallengeProgress('solve_math');
+            if (!adCompleted) {
+              adCompleted = true;
+              if (currentAdType === 'popup') {
+                updateChallengeProgress('solve_math');
+              }
+              updateChallengeProgress('watch_ads');
+              points += pointsPerAd;
+              document.getElementById('points-value').textContent = points;
+              localStorage.setItem('points', points);
+              updateBalance();
+              addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
+              renderLeaderboard();
+              closeMathChallenge();
+              Telegram.WebApp.HapticFeedback.notificationOccurred('success');
+              alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
             }
-            updateChallengeProgress('watch_ads');
-            points += pointsPerAd;
-            document.getElementById('points-value').textContent = points;
-            localStorage.setItem('points', points);
-            updateBalance();
-            addToHistory({ type: 'earn', detail: `+${pointsPerAd} Point(s) from Ad`, timestamp: Date.now() });
-            renderLeaderboard();
-            closeMathChallenge();
-            Telegram.WebApp.HapticFeedback.notificationOccurred('success');
-            alert(`Congratulations! You earned ${pointsPerAd} point(s). Your new balance is $${balance.toFixed(2)}.`);
           }, () => {
-            console.error('Ad failed or was closed early:', currentAdType);
-            closeMathChallenge();
-            alert(`Failed to load ad or ad was closed early. Please try again.`);
+            console.log('Ad failed or was closed early, adType:', currentAdType);
+            if (!adCompleted) {
+              closeMathChallenge();
+              alert(`Failed to load ad or ad was closed early. Please try again.`);
+            }
           });
         } else {
-          console.warn('Incorrect answer:', parsedAnswer, 'Expected:', currentMathProblem.answer);
-          errorElement.textContent = 'Incorrect answer. Please try again.';
+          console.warn('Incorrect answer:', userAnswer);
           errorElement.style.display = 'block';
           answerInput.value = '';
           answerInput.focus();
@@ -825,198 +835,13 @@
         }
       } catch (err) {
         console.error('Error in submitMathChallenge:', err);
+        alert('Error processing math challenge. Please try again.');
         closeMathChallenge();
-        alert(`Failed to load ad or ad was closed early. Please try again.`);
-      }
-    }
-
-    function shareLeaderboardRank() {
-      if (!tgUser || !tgUser.first_name) {
-        alert('Please log in to share your rank!');
-        return;
-      }
-      const leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || { users: [] };
-      const allUsers = [...leaderboardData.users];
-      const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
-      if (tgUser.first_name) {
-        allUsers.push({
-          name: tgUser.first_name,
-          points: userPoints,
-          avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
-          activityLevel: 'medium'
-        });
-      }
-      allUsers.sort((a, b) => b.points - a.points);
-      const userIndex = allUsers.findIndex(user => user.name === tgUser.first_name);
-      const rank = userIndex + 1;
-      const shareText = `I’m ranked #${rank} with ${userPoints} points on Easy Earning Bot! Join me and start earning: [Your Bot Link]`;
-      Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent('[Your Bot Link]')}&text=${encodeURIComponent(shareText)}`);
-      console.log('Sharing leaderboard rank:', shareText);
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      initApp();
-    });
-
-    function initApp() {
-      console.log('initApp called');
-      try {
-        initTelegram();
-        points = parseInt(localStorage.getItem('points')) || 0;
-        balance = parseFloat(localStorage.getItem('balance')) || 0.0;
-        document.getElementById('points-value').textContent = points;
-        document.getElementById('balance-value').textContent = `$${balance.toFixed(2)}`;
-        showView('home-view');
-        renderLeaderboard();
-        renderDailyChallenges();
-        renderCheckIn();
-      } catch (err) {
-        console.error('Error in initApp:', err);
-        alert('Error initializing app. Please refresh.');
-      }
-    }
-
-    function showView(viewId) {
-      console.log('showView called with viewId:', viewId);
-      document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-      document.getElementById(viewId).classList.add('active');
-      document.querySelectorAll('.nav-button').forEach(btn => btn.classList.remove('active'));
-      const activeBtn = document.querySelector(`.nav-button[onclick="showView('${viewId}')"]`);
-      if(activeBtn) activeBtn.classList.add('active');
-      if (viewId === 'history-view') renderHistory();
-      if (viewId === 'leaderboard-view') renderLeaderboard();
-      if (viewId === 'tasks-view') renderDailyChallenges();
-      if (viewId === 'home-view') renderCheckIn();
-    }
-
-    function renderHistory() {
-      console.log('Rendering history, historyLog length:', historyLog.length);
-      const list = document.getElementById('history-list');
-      if (historyLog.length === 0) {
-        list.innerHTML = `<div class="list-item"><div class="info"><div class="name">No activity yet.</div><div class="detail">Watch some ads to get started!</div></div></div>`;
-        return;
-      }
-      list.innerHTML = historyLog.map(item => {
-        const icon = item.type === 'earn' 
-          ? '<i class="fa-solid fa-plus-circle" style="color: var(--primary-color);"></i>' 
-          : '<i class="fa-solid fa-paper-plane" style="color: var(--accent-color);"></i>';
-        return `
-          <div class="list-item">
-            <div class="history-icon">${icon}</div>
-            <div class="info">
-              <div class="name">${item.detail || 'Activity recorded'}</div>
-              <div class="detail">${new Date(item.timestamp).toLocaleString()}</div>
-            </div>
-          </div>`;
-      }).join('');
-    }
-
-    function renderLeaderboard() {
-      console.log('Rendering leaderboard');
-      try {
-        const baseUsers = [
-          { name: "CryptoKing", basePoints: 2540, activityLevel: 'high' },
-          { name: "Elena", basePoints: 2210, activityLevel: 'medium' },
-          { name: "ProMiner", basePoints: 1980, activityLevel: 'high' },
-          { name: "Aisha", basePoints: 1750, activityLevel: 'low' },
-          { name: "BotMaster", basePoints: 1530, activityLevel: 'medium' }
-        ];
-
-        let leaderboardData = null;
-        try {
-          leaderboardData = JSON.parse(localStorage.getItem('leaderboardData')) || {
-            lastUpdated: new Date().toISOString().split('T')[0],
-            users: baseUsers.map(user => ({ ...user, points: user.basePoints }))
-          };
-        } catch (err) {
-          console.warn('Invalid leaderboardData in localStorage, resetting:', err);
-          leaderboardData = {
-            lastUpdated: new Date().toISOString().split('T')[0],
-            users: baseUsers.map(user => ({ ...user, points: user.basePoints }))
-          };
-        }
-
-        const today = new Date().toISOString().split('T')[0];
-        const lastUpdated = new Date(leaderboardData.lastUpdated);
-        const daysDiff = Math.floor((new Date(today) - lastUpdated) / (1000 * 60 * 60 * 24));
-
-        if (daysDiff > 0) {
-          leaderboardData.users = leaderboardData.users.map(user => {
-            const dailyIncrease = user.activityLevel === 'high' ? Math.floor(Math.random() * 16) + 10 :
-                                 user.activityLevel === 'medium' ? Math.floor(Math.random() * 11) + 5 :
-                                 Math.floor(Math.random() * 6) + 1;
-            return {
-              ...user,
-              points: user.points + (dailyIncrease * daysDiff)
-            };
-          });
-          leaderboardData.lastUpdated = today;
-          localStorage.setItem('leaderboardData', JSON.stringify(leaderboardData));
-          console.log('Updated leaderboard points for', daysDiff, 'days:', leaderboardData.users);
-        }
-
-        let allUsers = [...leaderboardData.users];
-        let userRank = null;
-        if (tgUser && tgUser.first_name) {
-          const userPoints = points >= 1000 ? points : Math.floor(Math.random() * 501) + 1000;
-          const loginUser = {
-            name: tgUser.first_name,
-            points: userPoints,
-            avatar: tgUser.photo_url || `https://i.pravatar.cc/150?img=6`,
-            activityLevel: 'medium'
-          };
-          allUsers.push(loginUser);
-          console.log('Added login user to leaderboard:', loginUser.name, 'with points:', userPoints);
-        } else {
-          console.warn('No login user available for leaderboard.');
-        }
-
-        allUsers.sort((a, b) => b.points - a.points);
-        const list = document.getElementById('leaderboard-list');
-        list.innerHTML = allUsers.slice(0, 5).map((user, index) => {
-          const isCurrentUser = tgUser && user.name === tgUser.first_name;
-          if (isCurrentUser) userRank = index + 1;
-          const badge = index === 0 ? '<i class="badge fa-solid fa-medal"></i>' :
-                        index === 1 ? '<i class="badge fa-solid fa-award"></i>' :
-                        index === 2 ? '<i class="badge fa-solid fa-trophy"></i>' : '';
-          const nextPoints = index === 0 ? user.points * 1.2 : allUsers[index - 1].points;
-          const progress = index === 0 ? Math.min((user.points / nextPoints) * 100, 100) :
-                          Math.min((user.points / nextPoints) * 100, 99);
-          return `
-            <div class="list-item ${isCurrentUser ? 'current-user' : ''} rank-${index + 1}">
-              <div class="rank">#${index + 1}</div>
-              ${badge}
-              <img src="${user.avatar}" class="avatar" alt="Avatar" onerror="this.src='https://i.pravatar.cc/150?img=1'">
-              <div class="info">
-                <div class="name">${user.name}</div>
-                <div class="progress-bar-container">
-                  <div class="progress-bar" style="width: ${progress}%"></div>
-                </div>
-              </div>
-              <div class="score">${user.points} pts</div>
-            </div>
-          `;
-        }).join('');
-
-        if (userRank && lastUserRank && userRank < lastUserRank) {
-          const notification = document.getElementById('rank-notification');
-          notification.textContent = `Rank Up! You’re now #${userRank}!`;
-          notification.classList.add('active');
-          setTimeout(() => notification.classList.remove('active'), 3000);
-        }
-        lastUserRank = userRank;
-      } catch (err) {
-        console.error('Error rendering leaderboard:', err);
-        document.getElementById('leaderboard-list').innerHTML = `<div class="list-item"><div class="info"><div class="name">Error loading leaderboard.</div><div class="detail">Please try again later.</div></div></div>`;
       }
     }
 
     function openWithdrawModal() {
-      console.log('openWithdrawModal called, balance:', balance);
-      if (balance < 5) {
-        Telegram.WebApp.HapticFeedback.notificationOccurred('error');
-        return alert("Minimum withdrawal amount is $5.00. Keep earning!");
-      }
+      console.log('Opening withdraw modal');
       document.getElementById('withdraw-modal').classList.add('active');
     }
 
@@ -1024,6 +849,114 @@
       console.log('Closing withdraw modal');
       document.getElementById('withdraw-modal').classList.remove('active');
     }
+
+    function requestWithdraw(balance, addToHistory) {
+      console.log('Requesting withdraw, balance:', balance);
+      if (balance <= 0) {
+        alert('Insufficient balance to withdraw.');
+        closeWithdrawModal();
+        return;
+      }
+      addToHistory({ type: 'withdraw', detail: `Withdrew $${balance.toFixed(2)}`, timestamp: Date.now() });
+      points = 0;
+      localStorage.setItem('points', points);
+      updateBalance();
+      closeWithdrawModal();
+      alert(`Withdrawal request of $${balance.toFixed(2)} submitted successfully!`);
+      renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+      console.log('renderLeaderboard called');
+      const leaderboard = [
+        { name: 'User1', score: 150 },
+        { name: 'User2', score: 120 },
+        { name: 'You', score: points },
+        { name: 'User4', score: 80 },
+        { name: 'User5', score: 50 }
+      ].sort((a, b) => b.score - a.score);
+
+      const list = document.getElementById('leaderboard-list');
+      if (!list) {
+        console.error('Leaderboard list not found');
+        return;
+      }
+
+      list.innerHTML = leaderboard.map((user, index) => `
+        <div class="list-item ${user.name === 'You' ? 'current-user' : ''}">
+          <span class="rank">${index + 1}</span>
+          <div class="avatar" style="background: #${Math.floor(Math.random()*16777215).toString(16)};"></div>
+          <div class="info">
+            <div class="name">${user.name}</div>
+            <div class="detail">${user.score} Points</div>
+          </div>
+          ${index < 3 ? `<i class="badge fa-solid fa-medal"></i>` : ''}
+        </div>
+      `).join('');
+      lastUserRank = leaderboard.findIndex(u => u.name === 'You') + 1;
+      if (lastUserRank !== null && document.getElementById('leaderboard-view').classList.contains('active')) {
+        const notification = document.getElementById('rank-notification');
+        if (notification) {
+          notification.textContent = `Rank Up! You’re now #${lastUserRank}!`;
+          notification.classList.add('active');
+          setTimeout(() => notification.classList.remove('active'), 3000);
+        }
+      }
+      console.log('Leaderboard rendered, your rank:', lastUserRank);
+    }
+
+    function shareLeaderboardRank() {
+      console.log('Sharing leaderboard rank:', lastUserRank);
+      if (lastUserRank === null) {
+        alert('Please wait for the leaderboard to load.');
+        return;
+      }
+      Telegram.WebApp.openTelegramLink(`https://t.me/share/url?url=Check%20out%20my%20rank%20%23${lastUserRank}%20on%20Easy%20Earning%20Bot!&text=I%20am%20ranked%20%23${lastUserRank}%20with%20${points}%20points!`);
+    }
+
+    function shareApp() {
+      console.log('Sharing app');
+      Telegram.WebApp.openTelegramLink('https://t.me/share/url?url=https://t.me/EasyEarningBot&text=Join%20Easy%20Earning%20Bot%20to%20earn%20points%20and%20cash!');
+    }
+
+    function renderHistory() {
+      console.log('renderHistory called');
+      const list = document.getElementById('history-list');
+      if (!list) {
+        console.error('History list not found');
+        return;
+      }
+      list.innerHTML = historyLog.slice(-10).map(entry => `
+        <div class="list-item">
+          <i class="history-icon fa-solid fa-clock"></i>
+          <div class="info">
+            <div class="name">${entry.type.charAt(0).toUpperCase() + entry.type.slice(1)}</div>
+            <div class="detail">${entry.detail} - ${new Date(entry.timestamp).toLocaleString()}</div>
+          </div>
+        </div>
+      `).join('');
+      console.log('History rendered:', historyLog.slice(-10));
+    }
+
+    function showView(viewId) {
+      console.log('Showing view:', viewId);
+      document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+      document.getElementById(viewId).classList.add('active');
+      document.querySelectorAll('.nav-button').forEach(button => button.classList.remove('active'));
+      document.querySelector(`.nav-button[onclick="showView('${viewId}')"]`).classList.add('active');
+      if (viewId === 'leaderboard-view') renderLeaderboard();
+      if (viewId === 'history-view') renderHistory();
+    }
+
+    // Initialize app
+    document.addEventListener('DOMContentLoaded', () => {
+      console.log('DOM fully loaded, initializing app');
+      document.getElementById('points-value').textContent = points;
+      updateBalance();
+      renderDailyChallenges();
+      renderCheckIn();
+      showView('home-view');
+    });
   </script>
 </body>
 </html>
